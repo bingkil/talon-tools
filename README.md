@@ -169,6 +169,108 @@ def load_skills(skill_names: list[str]) -> list[Tool]:
 tools = load_skills(["atlassian", "notion", "search"])
 ```
 
+### Using as agent instructions (drop-in, no code)
+
+Every tool module includes a `SKILL.md` — a self-contained instruction file that teaches an LLM agent how to use that tool. These work with **any agent harness** that supports markdown instructions: VS Code Copilot, Claude Code, Cursor, Windsurf, OpenAI Agents, or your own custom setup.
+
+The idea is simple: install `talon-tools` to get the Python tool functions, then copy the skill instructions into wherever your agent reads them.
+
+**Recommended setup:**
+
+```bash
+# 1. Install the tools (gives your agent the actual callable functions)
+pip install 'talon-tools[all]'
+
+# 2. Copy the skill bundle into your agent's instruction directory
+cp -r skills/ /path/to/your/agent/skills/
+```
+
+The [`skills/`](skills/) folder at the repo root contains **only SKILL.md files** — no Python code. It's a ready-to-use bundle you can drop into any agent harness. Each file teaches the LLM what tools are available and how to call them.
+
+| Agent Harness | Where to copy `skills/` contents |
+|---------------|----------------------------------|
+| VS Code Copilot | `.github/instructions/` (rename to `.instructions.md`) |
+| Claude Code | Reference paths in `CLAUDE.md` |
+| Cursor | `.cursor/rules/` |
+| Windsurf | `.windsurfrules` directory |
+| Talon | `agents/skills/` |
+| Custom | Inject into system prompt or context |
+
+#### VS Code Copilot
+
+Copy into `.github/instructions/` or `.github/copilot-instructions.md`:
+
+```bash
+# As a standalone instruction file
+cp talon_tools/earthquake/SKILL.md .github/instructions/earthquake.instructions.md
+cp talon_tools/spotify/SKILL.md    .github/instructions/spotify.instructions.md
+```
+
+Or reference in your `copilot-instructions.md`:
+
+```markdown
+## Available Skills
+
+The following SKILL.md files describe tools you can use:
+- [Earthquake](talon_tools/earthquake/SKILL.md) — Real-time USGS earthquake data
+- [Spotify](talon_tools/spotify/SKILL.md) — Music playback and search
+```
+
+#### Claude Code
+
+Add to your `CLAUDE.md` or `.claude/instructions.md`:
+
+```markdown
+## Tools
+
+Read and follow the instructions in these files when asked about the relevant topic:
+- talon_tools/earthquake/SKILL.md — Earthquake monitoring
+- talon_tools/google/SKILL.md — Gmail, Calendar, Docs, etc.
+- talon_tools/wa/SKILL.md — WhatsApp messaging
+```
+
+#### Cursor / Windsurf
+
+Add to `.cursor/rules/` or `.windsurfrules`:
+
+```bash
+cp talon_tools/earthquake/SKILL.md .cursor/rules/earthquake.md
+cp talon_tools/spotify/SKILL.md    .cursor/rules/spotify.md
+```
+
+#### Custom agent / system prompt
+
+Concatenate skill files into your system prompt or tool registry:
+
+```python
+from pathlib import Path
+
+skills = ["earthquake", "google", "spotify"]
+for name in skills:
+    content = Path(f"talon_tools/{name}/SKILL.md").read_text()
+    # Append to system prompt, inject into context, etc.
+```
+
+#### General pattern
+
+The `SKILL.md` files are plain markdown with optional YAML frontmatter. They work anywhere an LLM can read instructions:
+
+```markdown
+---
+description: One-line summary of what this skill does
+dependencies:
+  - pip-package-name
+---
+
+# Skill Name
+
+When to use, available tools/commands, workflows, and notes.
+```
+
+- `description` — Short summary for registries or skill listings
+- `dependencies` — Python packages needed (install via `pip install` or `uv pip install`)
+- **Body** — The actual instructions the agent reads and follows
+
 ### Custom tool
 
 ```python
@@ -226,7 +328,10 @@ talon_tools/
 ├── docreader/             # Document parsing tools
 ├── mcp/                   # MCP client
 ├── terminal/              # Shell execution tools
-└── workspace/             # File system tools
+├── workspace/             # File system tools
+└── ...each module has:
+    ├── tools.py           # build_tools() -> list[Tool]
+    └── SKILL.md           # Drop-in skill instructions
 ```
 
 ### Adding a new tool module
