@@ -58,10 +58,6 @@ class ToolOnboarding:
         return None
 
 
-# Keep old name as alias for backward compatibility
-ServiceOnboarding = ToolOnboarding
-
-
 def check_credential(key: str) -> bool:
     """Check if a credential is set and non-empty."""
     try:

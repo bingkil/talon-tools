@@ -6,3 +6,5 @@ build/
 .venv/
 credentials.yaml
 *.ipynb
+talon_tools/onboarding/spotify.py
+talon_tools/onboarding/youtube.py

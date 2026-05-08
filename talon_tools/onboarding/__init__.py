@@ -1,5 +1,5 @@
 """Onboarding module — guides users through setting up tool credentials."""
 
-from .base import OnboardingStep, ToolOnboarding, ServiceOnboarding, check_credential
+from .base import OnboardingStep, ToolOnboarding, check_credential
 
-__all__ = ["OnboardingStep", "ToolOnboarding", "ServiceOnboarding", "check_credential"]
+__all__ = ["OnboardingStep", "ToolOnboarding", "check_credential"]
