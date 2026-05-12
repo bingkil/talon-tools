@@ -1,5 +1,7 @@
 """Spotify OAuth2 token management.
 
+Tokens are encrypted at rest via AES-256 (Fernet). See credential_store.py.
+
 On first use, run the setup script to authorize:
     python -m talon_tools.spotify.setup
 
@@ -25,6 +27,7 @@ from pathlib import Path
 
 import httpx
 from talon_tools.credentials import get as cred
+from talon_tools.credential_store import save_encrypted, load_encrypted
 
 # Scopes needed for full playback control + read + playlist management
 SCOPES = " ".join([
@@ -105,9 +108,8 @@ def get_access_token(agent_dir: Path | None = None) -> str:
     If no cached token exists, raises RuntimeError with instructions.
     Run `python -m talon_tools.spotify.setup` first.
     """
-    token_path = _token_file(agent_dir)
-    path = Path(token_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    token_path = Path(_token_file(agent_dir))
+    token_path.parent.mkdir(parents=True, exist_ok=True)
 
     client_id = cred("SPOTIFY_CLIENT_ID", "")
     client_secret = cred("SPOTIFY_CLIENT_SECRET", "")
@@ -119,7 +121,8 @@ def get_access_token(agent_dir: Path | None = None) -> str:
             "Register an app at https://developer.spotify.com/dashboard"
         )
 
-    if not path.exists():
+    cached = load_encrypted(token_path)
+    if not cached:
         auth_url = get_authorize_url(client_id, redirect_uri)
         raise RuntimeError(
             f"No Spotify token found. Run the setup script to authorize:\n"
@@ -127,11 +130,11 @@ def get_access_token(agent_dir: Path | None = None) -> str:
             f"Or manually visit: {auth_url}"
         )
 
-    token_info = json.loads(path.read_text())
+    token_info = json.loads(cached)
 
     # Refresh if expired (with 60s buffer)
     if token_info.get("expires_at", 0) < time.time() + 60:
         token_info = _refresh_token(token_info, client_id, client_secret)
-        path.write_text(json.dumps(token_info))
+        save_encrypted(json.dumps(token_info), token_path)
 
     return token_info["access_token"]

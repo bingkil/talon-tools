@@ -53,6 +53,106 @@ def _telegram_onboarding() -> ToolOnboarding:
     )
 
 
+def _discord_onboarding() -> ToolOnboarding:
+    return ToolOnboarding(
+        service="discord",
+        display_name="Discord",
+        setup_type="manual",
+        category="channel",
+        steps=[
+            OnboardingStep(
+                title="Create a Discord Bot",
+                instruction=(
+                    "1. Go to https://discord.com/developers/applications\n"
+                    "2. Click 'New Application', give it a name\n"
+                    "3. Go to Bot → click 'Reset Token' to get the bot token\n"
+                    "4. Enable 'Message Content Intent' under Privileged Gateway Intents\n"
+                    "5. Go to OAuth2 → URL Generator:\n"
+                    "   - Scopes: bot\n"
+                    "   - Bot Permissions: Send Messages, Read Message History\n"
+                    "6. Copy the generated URL and open it to invite the bot to your server"
+                ),
+                credential_key="DISCORD_TOKEN",
+            ),
+            OnboardingStep(
+                title="Set allowed user IDs (optional)",
+                instruction=(
+                    "Restrict the bot to respond only to specific users.\n"
+                    "To get your user ID: Settings → Advanced → enable Developer Mode,\n"
+                    "then right-click your username → Copy User ID.\n"
+                    "Enter comma-separated IDs, or leave empty to allow all users."
+                ),
+                credential_key="DISCORD_ALLOWED_USERS",
+                is_optional=True,
+            ),
+        ],
+    )
+
+
+def _slack_onboarding() -> ToolOnboarding:
+    return ToolOnboarding(
+        service="slack",
+        display_name="Slack",
+        setup_type="manual",
+        category="channel",
+        steps=[
+            OnboardingStep(
+                title="Create a Slack App",
+                instruction=(
+                    "1. Go to https://api.slack.com/apps\n"
+                    "2. Click 'Create New App' → 'From scratch'\n"
+                    "3. Name it 'Talon' and select your workspace\n"
+                    "4. Go to OAuth & Permissions → add Bot Token Scopes:\n"
+                    "   - chat:write, channels:history, groups:history,\n"
+                    "     im:history, mpim:history, app_mentions:read\n"
+                    "5. Install the app to your workspace\n"
+                    "6. Copy the Bot User OAuth Token (starts with xoxb-)"
+                ),
+                credential_key="SLACK_BOT_TOKEN",
+            ),
+            OnboardingStep(
+                title="Enable Socket Mode",
+                instruction=(
+                    "1. Go to Settings → Socket Mode → Enable Socket Mode\n"
+                    "2. Create an App-Level Token with connections:write scope\n"
+                    "3. Copy the token (starts with xapp-)"
+                ),
+                credential_key="SLACK_APP_TOKEN",
+            ),
+        ],
+    )
+
+
+def _viber_onboarding() -> ToolOnboarding:
+    return ToolOnboarding(
+        service="viber",
+        display_name="Viber",
+        setup_type="manual",
+        category="channel",
+        steps=[
+            OnboardingStep(
+                title="Create a Viber Bot",
+                instruction=(
+                    "1. Go to https://partners.viber.com/\n"
+                    "2. Sign in and click 'Create Bot Account'\n"
+                    "3. Fill in bot name, avatar, and category\n"
+                    "4. Copy the Authentication Token from the bot's settings"
+                ),
+                credential_key="VIBER_AUTH_TOKEN",
+            ),
+            OnboardingStep(
+                title="Set bot sender name (optional)",
+                instruction=(
+                    "The name shown when your bot sends messages.\n"
+                    "Leave empty to use 'Talon' as default."
+                ),
+                credential_key="VIBER_SENDER_NAME",
+                is_optional=True,
+            ),
+        ],
+    )
+
+
 def _install_signal_cli() -> None:
     """Download and install signal-cli + Java to ~/.config/talon/."""
     import io
@@ -263,6 +363,9 @@ def get_all_onboardings() -> dict[str, ToolOnboarding]:
         "facebook": facebook(),
         # Channels
         "telegram": _telegram_onboarding(),
+        "discord": _discord_onboarding(),
+        "slack": _slack_onboarding(),
+        "viber": _viber_onboarding(),
         "signal": _signal_onboarding(),
         "wa": wa(),
     }

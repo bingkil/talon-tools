@@ -92,6 +92,104 @@ def gmail_tools(token_file=None) -> list[Tool]:
                   "attachments": {"type": "array", "items": {"type": "string"}, "description": "List of local file paths to attach (optional)"},
               }, "required": ["to", "subject", "body"]},
               b(gmail.create_draft)),
+
+        _tool("gmail_mark_read",
+              "Mark an email as read (removes UNREAD label).",
+              {"type": "object", "properties": {
+                  "message_id": {"type": "string", "description": "Gmail message ID"},
+              }, "required": ["message_id"]},
+              b(gmail.mark_as_read)),
+
+        _tool("gmail_mark_unread",
+              "Mark an email as unread.",
+              {"type": "object", "properties": {
+                  "message_id": {"type": "string", "description": "Gmail message ID"},
+              }, "required": ["message_id"]},
+              b(gmail.mark_as_unread)),
+
+        _tool("gmail_trash",
+              "Move an email to trash.",
+              {"type": "object", "properties": {
+                  "message_id": {"type": "string", "description": "Gmail message ID"},
+              }, "required": ["message_id"]},
+              b(gmail.trash_message)),
+
+        _tool("gmail_archive",
+              "Archive an email — removes it from the inbox without deleting it.",
+              {"type": "object", "properties": {
+                  "message_id": {"type": "string", "description": "Gmail message ID"},
+              }, "required": ["message_id"]},
+              b(gmail.archive_message)),
+
+        _tool("gmail_star",
+              "Star an email.",
+              {"type": "object", "properties": {
+                  "message_id": {"type": "string", "description": "Gmail message ID"},
+              }, "required": ["message_id"]},
+              b(gmail.star_message)),
+
+        _tool("gmail_unstar",
+              "Remove star from an email.",
+              {"type": "object", "properties": {
+                  "message_id": {"type": "string", "description": "Gmail message ID"},
+              }, "required": ["message_id"]},
+              b(gmail.unstar_message)),
+
+        _tool("gmail_download_attachment",
+              "Download an email attachment to the inputs/ folder (same location as channel attachments). Use gmail_read first to get the attachment_id.",
+              {"type": "object", "properties": {
+                  "message_id": {"type": "string", "description": "Gmail message ID containing the attachment"},
+                  "attachment_id": {"type": "string", "description": "Attachment ID from gmail_read output"},
+                  "filename": {"type": "string", "description": "Filename to save as"},
+                  "save_dir": {"type": "string", "description": "Override directory (default: inputs/YYYY-MM-DD/)"},
+              }, "required": ["message_id", "attachment_id", "filename"]},
+              b(gmail.download_attachment)),
+
+        _tool("gmail_get_thread",
+              "Read all messages in an email conversation thread. Use the thread ID from gmail_read output.",
+              {"type": "object", "properties": {
+                  "thread_id": {"type": "string", "description": "Gmail thread ID"},
+              }, "required": ["thread_id"]},
+              b(gmail.get_thread)),
+
+        _tool("gmail_reply",
+              "Reply to an existing email, preserving the conversation thread. Read the thread first with gmail_get_thread.",
+              {"type": "object", "properties": {
+                  "message_id": {"type": "string", "description": "Gmail message ID to reply to"},
+                  "body": {"type": "string", "description": "Reply body text"},
+                  "reply_all": {"type": "boolean", "description": "Reply to all recipients (default: false)"},
+              }, "required": ["message_id", "body"]},
+              b(gmail.reply_to_message)),
+
+        _tool("gmail_forward",
+              "Forward an email to another address, optionally with additional text.",
+              {"type": "object", "properties": {
+                  "message_id": {"type": "string", "description": "Gmail message ID to forward"},
+                  "to": {"type": "string", "description": "Recipient email address"},
+                  "body": {"type": "string", "description": "Optional text to include above the forwarded message"},
+              }, "required": ["message_id", "to"]},
+              b(gmail.forward_message)),
+
+        _tool("gmail_list_labels",
+              "List all Gmail labels (system and user-created) with their IDs. Use label IDs with gmail_add_label/gmail_remove_label.",
+              {"type": "object", "properties": {}},
+              b(gmail.list_labels)),
+
+        _tool("gmail_add_label",
+              "Add a label to an email. Use gmail_list_labels first to get the label ID.",
+              {"type": "object", "properties": {
+                  "message_id": {"type": "string", "description": "Gmail message ID"},
+                  "label_id": {"type": "string", "description": "Label ID (from gmail_list_labels)"},
+              }, "required": ["message_id", "label_id"]},
+              b(gmail.add_label)),
+
+        _tool("gmail_remove_label",
+              "Remove a label from an email.",
+              {"type": "object", "properties": {
+                  "message_id": {"type": "string", "description": "Gmail message ID"},
+                  "label_id": {"type": "string", "description": "Label ID to remove"},
+              }, "required": ["message_id", "label_id"]},
+              b(gmail.remove_label)),
     ]
 
 
@@ -127,6 +225,13 @@ def calendar_tools(token_file=None) -> list[Tool]:
                   "location": {"type": "string", "description": "Event location (optional)"},
               }, "required": ["summary", "start", "end"]},
               b(calendar.create_event)),
+
+        _tool("calendar_delete",
+              "Delete a calendar event by its ID.",
+              {"type": "object", "properties": {
+                  "event_id": {"type": "string", "description": "Calendar event ID to delete"},
+              }, "required": ["event_id"]},
+              b(calendar.delete_event)),
     ]
 
 

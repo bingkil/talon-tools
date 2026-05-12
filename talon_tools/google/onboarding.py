@@ -5,6 +5,15 @@ from __future__ import annotations
 from talon_tools.onboarding.base import ToolOnboarding, OnboardingStep
 
 
+def _run_google_setup() -> None:
+    """Run the automated GCP setup — creates project, enables APIs, saves credentials.
+
+    Requires gcloud CLI (https://cloud.google.com/sdk/docs/install).
+    """
+    from talon_tools.google.setup import run_setup
+    run_setup(login_after=True)
+
+
 def _run_google_oauth() -> None:
     """Run the Google OAuth flow — opens browser, handles callback, saves token."""
     from talon_tools.google.auth import authorize_interactive
@@ -17,28 +26,22 @@ def get_onboarding() -> ToolOnboarding:
         display_name="Google (Gmail, Calendar, Drive, YouTube, etc.)",
         setup_type="oauth",
         pip_extras=["google-auth-oauthlib"],
+        dependencies=["gcloud"],
         steps=[
             OnboardingStep(
-                title="Create Google Cloud Project",
+                title="Set up GCP project and OAuth credentials",
                 instruction=(
-                    "1. Go to https://console.cloud.google.com/\n"
-                    "2. Create a new project (or select existing)\n"
-                    "3. Enable APIs: Gmail, Calendar, Drive, Contacts, Tasks, Keep\n"
-                    "   → https://console.cloud.google.com/apis/library"
-                ),
-                credential_key=None,
-            ),
-            OnboardingStep(
-                title="Create OAuth Credentials",
-                instruction=(
-                    "1. Go to https://console.cloud.google.com/apis/credentials\n"
-                    "2. Click '+ Create Credentials' → 'OAuth client ID'\n"
-                    "3. Application type: 'Desktop app'\n"
-                    "4. Download the JSON file\n"
-                    "5. Save it as 'credentials.json' in your config directory\n"
-                    "   (set GOOGLE_CREDENTIALS_FILE to point to it)"
+                    "Automated setup via gcloud CLI:\n"
+                    "  - Creates/selects a GCP project\n"
+                    "  - Enables Workspace APIs (Gmail, Calendar, Drive, etc.)\n"
+                    "  - Configures OAuth consent screen\n"
+                    "  - Guides you to create an OAuth client and paste credentials\n"
+                    "\n"
+                    "Requires: gcloud CLI (https://cloud.google.com/sdk/docs/install)\n"
+                    "Run manually: python -m talon_tools.google.setup"
                 ),
                 credential_key="GOOGLE_CREDENTIALS_FILE",
+                oauth_handler=_run_google_setup,
             ),
             OnboardingStep(
                 title="Authorize Google Access",

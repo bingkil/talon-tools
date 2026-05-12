@@ -19,7 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries",
 ]
-dependencies = ["pyyaml>=6.0", "truststore>=0.9"]
+dependencies = ["pyyaml>=6.0", "truststore>=0.9", "cryptography>=43.0", "keyring>=25.0"]
 
 [project.urls]
 Homepage = "https://github.com/bingkil/talon-tools"
@@ -50,6 +50,7 @@ docreader = [
 x = ["httpx", "browser-cookie3"]
 mcp = ["httpx"]
 gemini = ["google-genai>=1.0", "openai>=1.0"]
+jenkins = ["httpx"]
 servicenow = ["aiohttp"]
 catholic = ["aiohttp"]
 spotify = ["httpx"]
@@ -70,6 +71,7 @@ all = [
     "talon-tools[catholic]",
     "talon-tools[spotify]",
     "talon-tools[youtube]",
+    "talon-tools[jenkins]",
     "talon-tools[wa]",
 ]
 
