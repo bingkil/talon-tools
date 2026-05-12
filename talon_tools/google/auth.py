@@ -114,7 +114,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Authorize Google account")
     parser.add_argument(
         "--agent",
-        help="Agent name (stores token in agents/<name>/google/token.json)",
+        help="Agent name (stores token in <flock>/<name>/google/token.json)",
+    )
+    parser.add_argument(
+        "--flock",
+        help="Path to the flock directory (default: current directory)",
     )
     parser.add_argument(
         "--token-file",
@@ -124,8 +128,10 @@ if __name__ == "__main__":
 
     if args.agent:
         from pathlib import Path as P
-        target = P.cwd() / "agents" / args.agent / "google" / "token.json"
+        flock = P(args.flock).resolve() if args.flock else P.cwd()
+        target = flock / args.agent / "google" / "token.json"
         print(f"Authorizing for agent: {args.agent}")
+        print(f"Flock: {flock}")
         print(f"Token will be saved to: {target}")
         authorize_interactive(target)
     elif args.token_file:
