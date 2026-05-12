@@ -8,3 +8,18 @@ credentials.yaml
 *.ipynb
 talon_tools/onboarding/spotify.py
 talon_tools/onboarding/youtube.py
+
+# Google OAuth — never commit tokens or encryption keys
+**/google/token.json
+**/google/token.enc
+**/google/.encryption_key
+
+# Microsoft — MSAL token cache
+**/microsoft/token.json
+**/microsoft/token.enc
+**/microsoft/.encryption_key
+
+# Spotify — OAuth tokens
+**/spotify_token.json
+**/spotify_token.enc
+**/.encryption_key

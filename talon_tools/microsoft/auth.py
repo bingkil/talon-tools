@@ -1,6 +1,8 @@
 """
 Microsoft Graph API auth — MSAL token management.
 
+Tokens are encrypted at rest via AES-256 (Fernet). See credential_store.py.
+
 Uses the Microsoft Graph PowerShell client ID by default (first-party,
 pre-registered in most tenants). Override via environment variables:
     MS_CLIENT_ID       — Azure AD application (client) ID
@@ -19,6 +21,7 @@ from pathlib import Path
 
 import msal
 from talon_tools.credentials import get as cred
+from talon_tools.credential_store import save_encrypted, load_encrypted
 
 _REPO_DIR = Path.cwd() / "talon" / "microsoft"
 _FALLBACK_DIR = Path.home() / ".config" / "talon-microsoft"
@@ -57,8 +60,9 @@ def _build_app() -> msal.PublicClientApplication:
 
     cache = msal.SerializableTokenCache()
     token_path = _token_path()
-    if token_path.exists():
-        cache.deserialize(token_path.read_text())
+    cached = load_encrypted(token_path)
+    if cached:
+        cache.deserialize(cached)
 
     app = msal.PublicClientApplication(
         client_id,
@@ -69,12 +73,11 @@ def _build_app() -> msal.PublicClientApplication:
 
 
 def _save_cache(app: msal.PublicClientApplication) -> None:
-    """Persist the token cache if it changed."""
+    """Persist the token cache (encrypted) if it changed."""
     cache = app.token_cache
     if cache.has_state_changed:
         token_path = _token_path()
-        token_path.parent.mkdir(parents=True, exist_ok=True)
-        token_path.write_text(cache.serialize())
+        save_encrypted(cache.serialize(), token_path)
 
 
 def get_token() -> str:

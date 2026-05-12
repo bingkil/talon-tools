@@ -3,16 +3,19 @@ Google API auth — shared OAuth2 credential management.
 
 Credential/token file paths are configurable via environment variables:
     GOOGLE_CREDENTIALS_FILE  — path to OAuth client secrets JSON
-    GOOGLE_TOKEN_FILE        — path to persisted OAuth token JSON
+    GOOGLE_TOKEN_FILE        — path to persisted OAuth token (encrypted)
+
+Tokens are encrypted at rest via AES-256 (Fernet). See credential_store.py.
 
 Defaults to ~/.config/talon-google/ if not set.
 
 First-time setup / re-auth:
-    python -m talon_google.auth
+    python -m talon_tools.google.auth
 """
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -54,20 +57,25 @@ def get_credentials(token_file: Path | str | None = None) -> Credentials:
     """Return valid Google OAuth credentials, refreshing if needed.
 
     Args:
-        token_file: Optional path to a specific token.json. If None, uses
+        token_file: Optional path to a specific token file. If None, uses
                     the global TOKEN_FILE (from env or default location).
+                    Can point to token.json (legacy) or token.enc (encrypted).
     """
+    from .credential_store import load_token, save_token
+
     tf = Path(token_file) if token_file else TOKEN_FILE
     creds = None
 
-    if tf.exists():
-        creds = Credentials.from_authorized_user_file(str(tf), SCOPES)
+    token_json = load_token(tf)
+    if token_json:
+        creds = Credentials.from_authorized_user_info(
+            json.loads(token_json), SCOPES
+        )
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            tf.parent.mkdir(parents=True, exist_ok=True)
-            tf.write_text(creds.to_json())
+            save_token(creds.to_json(), tf)
         else:
             raise RuntimeError(
                 f"Google token missing or revoked at {tf}. "
@@ -83,17 +91,20 @@ def authorize_interactive(token_file: Path | str | None = None) -> Credentials:
     Args:
         token_file: Where to save the token. Defaults to global TOKEN_FILE.
     """
+    from .credential_store import save_token
+
     tf = Path(token_file) if token_file else TOKEN_FILE
-    if not CREDENTIALS_FILE.exists():
+    # Re-resolve credentials file (env var may have been set by setup.py)
+    creds_file = _resolve("GOOGLE_CREDENTIALS_FILE", "credentials.json")
+    if not creds_file.exists():
         raise FileNotFoundError(
-            f"OAuth client secrets not found: {CREDENTIALS_FILE}\n"
+            f"OAuth client secrets not found: {creds_file}\n"
             f"Set GOOGLE_CREDENTIALS_FILE env var or place credentials.json in {_FALLBACK_DIR}"
         )
-    flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
+    flow = InstalledAppFlow.from_client_secrets_file(str(creds_file), SCOPES)
     creds = flow.run_local_server(port=0, open_browser=True)
-    tf.parent.mkdir(parents=True, exist_ok=True)
-    tf.write_text(creds.to_json())
-    print(f"\nToken saved to {tf}")
+    enc_path = save_token(creds.to_json(), tf)
+    print(f"\nToken saved to {enc_path} (encrypted)")
     return creds
 
 

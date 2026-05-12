@@ -59,9 +59,10 @@ def main():
 
     token_info = exchange_code(code, client_id, client_secret, redirect_uri)
 
-    Path(token_file).write_text(json.dumps(token_info))
+    from talon_tools.credential_store import save_encrypted
+    enc_path = save_encrypted(json.dumps(token_info), Path(token_file))
     print()
-    print(f"Success! Token saved to: {token_file}")
+    print(f"Success! Token saved to: {enc_path} (encrypted)")
     print("Talon can now control Spotify. No need to run this again.")
 
 
