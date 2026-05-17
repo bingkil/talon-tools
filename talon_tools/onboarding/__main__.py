@@ -90,16 +90,29 @@ def main() -> None:
     # Resolve flock directory
     flock_dir = Path(args.flock).resolve() if args.flock else None
 
+    # --flock is required for all credential operations
+    if not flock_dir:
+        print("Error: --flock is required. Credentials are scoped per-flock.")
+        print("Usage: talon auth <service> --flock <path> [--agent <name>]")
+        sys.exit(1)
+
     # For per-agent Google auth, delegate to the Google auth module directly
     if args.service == "google" and args.agent:
-        from talon_tools.google.auth import authorize_interactive
-        if not flock_dir:
-            print("Error: --flock is required when using --agent")
-            sys.exit(1)
-        target = flock_dir / args.agent / "google" / "token.json"
+        from talon_tools.google.auth import authorize_interactive, _resolve_credentials
+        agent_google_dir = flock_dir / args.agent / "google"
+        target = agent_google_dir / "token.json"
         print(f"Authorizing Google for agent: {args.agent}")
         print(f"Flock: {flock_dir}")
         print(f"Token will be saved to: {target}")
+
+        # Check if credentials.json exists anywhere in the resolution chain
+        creds_file = _resolve_credentials(target)
+        if not creds_file or not creds_file.exists():
+            print(f"\n  No credentials.json found. Running setup for agent {args.agent}...")
+            from talon_tools.google.setup import run_setup
+            run_setup(login_after=True, flock_dir=flock_dir, agent_name=args.agent)
+            return
+
         authorize_interactive(target)
         return
 

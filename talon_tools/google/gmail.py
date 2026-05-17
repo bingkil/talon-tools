@@ -15,6 +15,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email import encoders
 from pathlib import Path
+from typing import Any
 
 from googleapiclient.discovery import build
 
@@ -471,3 +472,63 @@ def remove_label(message_id: str, label_id: str, token_file=None) -> str:
         userId="me", id=message_id, body={"removeLabelIds": [label_id]}
     ).execute()
     return f"Removed label {label_id} from {message_id}"
+
+
+def create_filter(
+    from_addr: str = "",
+    to_addr: str = "",
+    subject: str = "",
+    has_words: str = "",
+    exclude_words: str = "",
+    has_attachment: bool | None = None,
+    add_label_ids: list[str] | None = None,
+    remove_label_ids: list[str] | None = None,
+    forward: str = "",
+    token_file=None,
+) -> str:
+    """Create a Gmail filter to automatically process future emails.
+
+    Args:
+        from_addr: Match emails from this sender.
+        to_addr: Match emails sent to this address.
+        subject: Match emails with this subject.
+        has_words: Match emails containing these words.
+        exclude_words: Exclude emails containing these words.
+        has_attachment: If True, match only emails with attachments.
+        add_label_ids: Label IDs to apply to matching emails.
+        remove_label_ids: Label IDs to remove (e.g. ["INBOX"] to auto-archive).
+        forward: Email address to forward matching emails to.
+    """
+    svc = _service(token_file)
+
+    criteria: dict[str, Any] = {}
+    if from_addr:
+        criteria["from"] = from_addr
+    if to_addr:
+        criteria["to"] = to_addr
+    if subject:
+        criteria["subject"] = subject
+    if has_words:
+        criteria["query"] = has_words
+    if exclude_words:
+        criteria["negatedQuery"] = exclude_words
+    if has_attachment is not None:
+        criteria["hasAttachment"] = has_attachment
+
+    if not criteria:
+        return "Error: at least one filter criterion is required"
+
+    action: dict[str, Any] = {}
+    if add_label_ids:
+        action["addLabelIds"] = add_label_ids
+    if remove_label_ids:
+        action["removeLabelIds"] = remove_label_ids
+    if forward:
+        action["forward"] = forward
+
+    if not action:
+        return "Error: at least one action is required (add_label_ids, remove_label_ids, or forward)"
+
+    body = {"criteria": criteria, "action": action}
+    result = svc.users().settings().filters().create(userId="me", body=body).execute()
+    return f"Filter created (id: {result['id']})"

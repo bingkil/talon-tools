@@ -1,11 +1,11 @@
 ---
-description: Read, write, list, and delete files in a sandboxed workspace directory
+description: Read, write, search, and manage files in a sandboxed workspace directory
 dependencies:
 ---
 
 # Workspace
 
-Secure file system operations sandboxed to a workspace root directory. Read, write, list, and delete files without risk of escaping the sandbox.
+Secure file system operations sandboxed to a workspace root directory. Read, write, search, append, update sections, list, and delete files without risk of escaping the sandbox.
 
 ## When to Use
 
@@ -14,6 +14,9 @@ Secure file system operations sandboxed to a workspace root directory. Read, wri
 - "List files in the workspace"
 - "Delete that file"
 - "Create a new file with..."
+- "Add this to the end of my notes"
+- "Update the summary section of that doc"
+- "Search my workspace for anything about MCP"
 - Agent-managed file storage and retrieval
 
 ## Installation & Invocation
@@ -52,6 +55,9 @@ This tool just wraps basic file operations — if your agent already has file sy
 |------|---------|
 | `ws_read` | Read a file from the workspace |
 | `ws_write` | Create or overwrite a file (auto-creates directories) |
+| `ws_append` | Append content to a file without overwriting (creates if missing) |
+| `ws_update` | Upsert a named Markdown section — replace if exists, append if not |
+| `ws_grep` | Search for text across all workspace files (substring or regex) |
 | `ws_list` | List directory contents |
 | `ws_delete` | Delete a file or directory |
 
@@ -61,3 +67,5 @@ This tool just wraps basic file operations — if your agent already has file sy
 - All paths are relative to the workspace root
 - Cannot escape the sandbox via `../` traversal
 - Directories are created automatically when writing files
+- `ws_grep` only searches text file extensions (.md, .txt, .py, .yaml, .json, .toml, .html, .csv)
+- `ws_update` matches section headings at configurable levels (##, ###, etc.)
