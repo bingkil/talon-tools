@@ -78,10 +78,24 @@ Requires Google OAuth 2.0 token. On first call, a browser window opens for autho
 | Tool | Purpose |
 |------|---------|
 | `gmail_inbox` | List recent emails with optional search query |
-| `gmail_read` | Read full email content by message ID |
+| `gmail_read` | Read full email content by message ID (includes attachment metadata) |
 | `gmail_search` | Search emails using Gmail query syntax |
 | `gmail_send` | Send email with optional attachments |
 | `gmail_draft` | Create a draft email |
+| `gmail_reply` | Reply to an email, preserving the thread (supports reply-all) |
+| `gmail_forward` | Forward an email to another address |
+| `gmail_get_thread` | Read all messages in a conversation thread |
+| `gmail_mark_read` | Mark an email as read |
+| `gmail_mark_unread` | Mark an email as unread |
+| `gmail_archive` | Archive an email (remove from inbox) |
+| `gmail_trash` | Move an email to trash |
+| `gmail_star` | Star an email |
+| `gmail_unstar` | Remove star from an email |
+| `gmail_download_attachment` | Download an email attachment to disk |
+| `gmail_list_labels` | List all labels (system + user-created) with IDs |
+| `gmail_add_label` | Apply a label to an email |
+| `gmail_remove_label` | Remove a label from an email |
+| `gmail_create_filter` | Create a filter to auto-process future emails matching criteria |
 
 ### Calendar
 | Tool | Purpose |

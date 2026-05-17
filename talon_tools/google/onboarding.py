@@ -5,19 +5,22 @@ from __future__ import annotations
 from talon_tools.onboarding.base import ToolOnboarding, OnboardingStep
 
 
-def _run_google_setup() -> None:
+def _run_google_setup(flock_dir=None) -> None:
     """Run the automated GCP setup — creates project, enables APIs, saves credentials.
 
     Requires gcloud CLI (https://cloud.google.com/sdk/docs/install).
     """
     from talon_tools.google.setup import run_setup
-    run_setup(login_after=True)
+    run_setup(login_after=True, flock_dir=flock_dir)
 
 
-def _run_google_oauth() -> None:
+def _run_google_oauth(flock_dir=None) -> None:
     """Run the Google OAuth flow — opens browser, handles callback, saves token."""
     from talon_tools.google.auth import authorize_interactive
-    authorize_interactive()
+    token_file = None
+    if flock_dir:
+        token_file = flock_dir / "google" / "token.json"
+    authorize_interactive(token_file)
 
 
 def get_onboarding() -> ToolOnboarding:

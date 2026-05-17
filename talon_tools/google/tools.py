@@ -190,6 +190,22 @@ def gmail_tools(token_file=None) -> list[Tool]:
                   "label_id": {"type": "string", "description": "Label ID to remove"},
               }, "required": ["message_id", "label_id"]},
               b(gmail.remove_label)),
+
+        _tool("gmail_create_filter",
+              "Create a Gmail filter to automatically process future emails matching criteria. "
+              "Use gmail_list_labels first to get label IDs for actions.",
+              {"type": "object", "properties": {
+                  "from_addr": {"type": "string", "description": "Match emails from this sender"},
+                  "to_addr": {"type": "string", "description": "Match emails sent to this address"},
+                  "subject": {"type": "string", "description": "Match emails with this subject"},
+                  "has_words": {"type": "string", "description": "Match emails containing these words"},
+                  "exclude_words": {"type": "string", "description": "Exclude emails containing these words"},
+                  "has_attachment": {"type": "boolean", "description": "Match only emails with attachments"},
+                  "add_label_ids": {"type": "array", "items": {"type": "string"}, "description": "Label IDs to apply to matching emails"},
+                  "remove_label_ids": {"type": "array", "items": {"type": "string"}, "description": "Label IDs to remove (e.g. ['INBOX'] to auto-archive)"},
+                  "forward": {"type": "string", "description": "Email address to forward matching emails to"},
+              }},
+              b(gmail.create_filter)),
     ]
 
 

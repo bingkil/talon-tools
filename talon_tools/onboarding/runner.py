@@ -98,7 +98,7 @@ def _run_steps(ob: ToolOnboarding, flock_dir: Path | None) -> dict:
 
         # Handle different step types
         if step.oauth_handler:
-            _run_oauth_step(step)
+            _run_oauth_step(step, flock_dir=flock_dir)
         elif step.is_command and step.command:
             _run_command_step(step)
         elif step.credential_key:
@@ -116,7 +116,7 @@ def _run_steps(ob: ToolOnboarding, flock_dir: Path | None) -> dict:
     return {"status": "success", "credentials": list(results.keys())}
 
 
-def _run_oauth_step(step: OnboardingStep) -> None:
+def _run_oauth_step(step: OnboardingStep, flock_dir: Path | None = None) -> None:
     """Run an OAuth handler (e.g. Google browser flow, signal-cli install)."""
     proceed = _prompt("  Ready to proceed? [Y/n]: ").strip().lower()
     if proceed in ("n", "no"):
@@ -126,7 +126,12 @@ def _run_oauth_step(step: OnboardingStep) -> None:
         raise _SetupCancelled()
 
     try:
-        step.oauth_handler()  # type: ignore[misc]
+        import inspect
+        sig = inspect.signature(step.oauth_handler)  # type: ignore[arg-type]
+        if "flock_dir" in sig.parameters:
+            step.oauth_handler(flock_dir=flock_dir)  # type: ignore[misc]
+        else:
+            step.oauth_handler()  # type: ignore[misc]
     except Exception as e:
         print(f"  ✗ Error: {e}")
         if not step.is_optional:

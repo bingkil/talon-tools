@@ -63,10 +63,6 @@ WORKSPACE_APIS = [
     ("keep.googleapis.com", "Google Keep"),
 ]
 
-# Default output path (global fallback — prefer per-flock via agent_dir)
-_GLOBAL_CREDENTIALS_DIR = Path.home() / ".config" / "talon-google"
-_GLOBAL_CREDENTIALS_FILE = _GLOBAL_CREDENTIALS_DIR / "credentials.json"
-
 
 def _gcloud_bin() -> str:
     """Return the gcloud executable name (platform-aware)."""
@@ -428,12 +424,22 @@ def configure_consent_screen(project_id: str, support_email: str) -> tuple[bool,
 # ── Step 6–7: Client credentials ─────────────────────────────────
 
 
+def _google_dir(flock_dir: Path | None, agent_name: str | None = None) -> Path | None:
+    """Return the target google/ dir for a flock+agent combination."""
+    if not flock_dir:
+        return None
+    if agent_name:
+        return flock_dir / agent_name / "google"
+    return flock_dir / "google"
+
+
 def save_client_credentials(
     client_id: str,
     client_secret: str,
     project_id: str,
     output_path: Path | None = None,
     flock_dir: Path | None = None,
+    agent_name: str | None = None,
 ) -> Path:
     """Save OAuth client credentials as a client_secret JSON file.
 
@@ -442,15 +448,21 @@ def save_client_credentials(
 
     Resolution order for output path:
         1. Explicit output_path argument
-        2. flock_dir / "google" / "credentials.json" (per-flock)
-        3. ~/.config/talon-google/credentials.json (global fallback)
+        2. flock_dir[/agent]/google/credentials.json (per-agent or per-flock)
+
+    flock_dir is required when output_path is not given.
     """
     if output_path:
         path = output_path
-    elif flock_dir:
-        path = flock_dir / "google" / "credentials.json"
     else:
-        path = _GLOBAL_CREDENTIALS_FILE
+        gdir = _google_dir(flock_dir, agent_name)
+        if gdir:
+            path = gdir / "credentials.json"
+        else:
+            raise ValueError(
+                "Cannot save credentials without a flock directory.\n"
+                "Use --flock to specify the target flock."
+            )
     path.parent.mkdir(parents=True, exist_ok=True)
 
     credentials = {
@@ -503,15 +515,19 @@ def _get_token_email(token_path: Path) -> str | None:
         return None
 
 
-def _check_existing_credentials(flock_dir: Path | None) -> tuple[bool, str | None]:
-    """Check if a flock already has Google credentials configured.
+def _check_existing_credentials(
+    flock_dir: Path | None,
+    agent_name: str | None = None,
+) -> tuple[bool, str | None]:
+    """Check if a flock/agent already has Google credentials configured.
 
     Returns (has_creds, email_or_none).
     """
-    if not flock_dir:
+    gdir = _google_dir(flock_dir, agent_name)
+    if not gdir:
         return False, None
-    creds_path = flock_dir / "google" / "credentials.json"
-    token_path = flock_dir / "google" / "token.json"
+    creds_path = gdir / "credentials.json"
+    token_path = gdir / "token.json"
     if not creds_path.exists():
         return False, None
     email = _get_token_email(token_path)
@@ -526,6 +542,7 @@ def run_setup(
     output_path: Path | None = None,
     flock_dir: Path | None = None,
     login_after: bool = False,
+    agent_name: str | None = None,
 ) -> dict[str, Any]:
     """Run the full interactive setup flow.
 
@@ -533,19 +550,21 @@ def run_setup(
         project: Specific GCP project ID to use (skips project selection).
         output_path: Explicit path to save client credentials JSON.
         flock_dir: Flock root directory (e.g. /path/to/my-flock).
-                   Credentials saved to <flock_dir>/google/credentials.json
-                   and token to <flock_dir>/google/token.json.
+                   Credentials saved to <flock_dir>[/<agent>]/google/credentials.json
+                   and token to <flock_dir>[/<agent>]/google/token.json.
         login_after: If True, runs OAuth login flow after setup.
+        agent_name: Agent name for per-agent credential isolation.
 
     Returns:
         Summary dict with status and details.
     """
-    print("\n🔧 Talon Google Setup")
+    scope = f"agent '{agent_name}'" if agent_name else "flock" if flock_dir else "global"
+    print(f"\n🔧 Talon Google Setup ({scope})")
     print("=" * 50)
     print("  (Press Ctrl+C at any prompt to cancel)\n")
 
     try:
-        return _run_setup_steps(project, output_path, flock_dir, login_after)
+        return _run_setup_steps(project, output_path, flock_dir, login_after, agent_name)
     except _SetupCancelled:
         return {"status": "cancelled", "error": "Setup cancelled by user"}
 
@@ -555,15 +574,18 @@ def _run_setup_steps(
     output_path: Path | None,
     flock_dir: Path | None,
     login_after: bool,
+    agent_name: str | None = None,
 ) -> dict[str, Any]:
     """Inner setup logic — separated so _SetupCancelled bubbles cleanly."""
-    # Step 0: Check for existing credentials in this flock
-    has_creds, existing_email = _check_existing_credentials(flock_dir)
+    scope_label = f"agent '{agent_name}'" if agent_name else "this flock"
+
+    # Step 0: Check for existing credentials
+    has_creds, existing_email = _check_existing_credentials(flock_dir, agent_name)
     if has_creds:
         if existing_email:
-            print(f"\n  This flock is already authorised as {existing_email}")
+            print(f"\n  {scope_label.capitalize()} is already authorised as {existing_email}")
         else:
-            print("\n  This flock already has Google credentials configured.")
+            print(f"\n  {scope_label.capitalize()} already has Google credentials configured.")
         choice = _prompt("  Re-authorise or change account? [y/N]: ").strip().lower()
         if choice not in ("y", "yes"):
             print("  Keeping existing credentials.")
@@ -583,8 +605,10 @@ def _run_setup_steps(
     if account:
         print(f"  Logged in as {account}")
         choice = _prompt("  Use this account? [Y/n]: ").strip().lower()
+        print(f"  [DEBUG] User chose: '{choice}'", flush=True)
         if choice in ("n", "no"):
-            print("  → Opening browser for gcloud auth login...")
+            print("  → Opening browser for gcloud auth login...", flush=True)
+            print(f"  [DEBUG] gcloud bin: {_gcloud_bin()}", flush=True)
             if not gcloud_auth_login():
                 return {"status": "error", "error": "gcloud auth login failed"}
             account = get_gcloud_account()
@@ -671,12 +695,13 @@ def _run_setup_steps(
     if not client_secret:
         return {"status": "error", "error": "Client Secret cannot be empty"}
 
-    creds_path = save_client_credentials(client_id, client_secret, project_id, output_path, flock_dir)
+    creds_path = save_client_credentials(client_id, client_secret, project_id, output_path, flock_dir, agent_name)
     print(f"\n  ✓ Credentials saved to {creds_path}")
 
-    # Determine token path (per-flock)
-    if flock_dir:
-        token_path = flock_dir / "google" / "token.json"
+    # Determine token path (per-agent or per-flock)
+    gdir = _google_dir(flock_dir, agent_name)
+    if gdir:
+        token_path = gdir / "token.json"
     elif output_path:
         token_path = output_path.parent / "token.json"
     else:

@@ -328,6 +328,73 @@ def _signal_onboarding() -> ToolOnboarding:
 
 
 # ---------------------------------------------------------------------------
+# Provider: GitHub Models
+# ---------------------------------------------------------------------------
+
+def _validate_github_token(token: str) -> None:
+    """Validate a GitHub token by calling the user endpoint."""
+    import json
+    import urllib.request
+    import urllib.error
+
+    req = urllib.request.Request(
+        "https://api.github.com/user",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "talon-tools",
+            "Accept": "application/vnd.github+json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+            print(f"    ✓ Authenticated as {data.get('login', 'unknown')}")
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise ValueError(f"Invalid GitHub token ({e.code})")
+    except urllib.error.URLError:
+        print("    ⚠ Could not reach api.github.com — skipping validation")
+
+
+def _github_onboarding() -> ToolOnboarding:
+    return ToolOnboarding(
+        service="github",
+        display_name="GitHub Models (Copilot Enterprise)",
+        setup_type="manual",
+        category="provider",
+        steps=[
+            OnboardingStep(
+                title="Create a fine-grained Personal Access Token",
+                instruction=(
+                    "1. Go to https://github.com/settings/personal-access-tokens/new\n"
+                    "2. Under Account permissions, add 'Models' with Read-only access\n"
+                    "3. Set expiration to your preference\n"
+                    "4. Click 'Generate token' and copy it (starts with github_pat_)"
+                ),
+                credential_key="GITHUB_TOKEN",
+            ),
+            OnboardingStep(
+                title="Validate token",
+                instruction="Verifying your GitHub token...",
+                oauth_handler=_validate_github_token_from_env,
+                is_optional=True,
+            ),
+        ],
+    )
+
+
+def _validate_github_token_from_env() -> None:
+    """Validate the stored GITHUB_TOKEN."""
+    import os
+    from talon_tools.credentials import get as cred_get
+    token = cred_get("GITHUB_TOKEN", "") or os.environ.get("GITHUB_TOKEN", "")
+    if not token:
+        print("    ⚠ No GITHUB_TOKEN found — skipping validation")
+        return
+    _validate_github_token(token)
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -361,6 +428,8 @@ def get_all_onboardings() -> dict[str, ToolOnboarding]:
         "spotify": spotify(),
         "x": x(),
         "facebook": facebook(),
+        # Providers
+        "github": _github_onboarding(),
         # Channels
         "telegram": _telegram_onboarding(),
         "discord": _discord_onboarding(),
