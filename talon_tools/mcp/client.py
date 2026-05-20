@@ -10,6 +10,7 @@ Designed for servers using streamable HTTP transport (fastmcp style).
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -40,6 +41,18 @@ class MCPClient:
         self._request_id += 1
         return self._request_id
 
+    @staticmethod
+    def _parse_sse(text: str) -> dict[str, Any]:
+        """Extract the last JSON-RPC message from an SSE stream."""
+        result: dict[str, Any] = {}
+        for line in text.splitlines():
+            if line.startswith("data: "):
+                try:
+                    result = json.loads(line[6:])
+                except json.JSONDecodeError:
+                    pass
+        return result
+
     async def _rpc(self, method: str, params: dict[str, Any] | None = None) -> Any:
         """Send a JSON-RPC 2.0 request and return the result."""
         payload = {
@@ -56,7 +69,7 @@ class MCPClient:
                 json=payload,
                 headers={
                     "Content-Type": "application/json",
-                    "Accept": "application/json",
+                    "Accept": "application/json, text/event-stream",
                     **self.headers,
                 },
             )
@@ -66,7 +79,11 @@ class MCPClient:
                 f"MCP server returned {resp.status_code}: {resp.text[:500]}"
             )
 
-        body = resp.json()
+        content_type = resp.headers.get("content-type", "")
+        if "text/event-stream" in content_type:
+            body = self._parse_sse(resp.text)
+        else:
+            body = resp.json()
 
         if "error" in body:
             err = body["error"]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -73,6 +74,95 @@ def check_blocked(command: str) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Sensitive paths — never writable regardless of cwd scope.
+# ---------------------------------------------------------------------------
+_SENSITIVE_PATHS: list[str] = [
+    ".env",
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".config/gcloud",
+    "credentials.yaml",
+]
+
+
+def _is_sensitive(path_str: str) -> bool:
+    """Check if a path targets a sensitive location."""
+    normalized = path_str.replace("\\", "/").lower()
+    for s in _SENSITIVE_PATHS:
+        if s in normalized:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Write-scope validation — block writes outside the agent's workspace.
+# ---------------------------------------------------------------------------
+
+# Patterns that indicate write intent + capture the target path.
+_WRITE_PATTERNS: list[re.Pattern] = [
+    # Redirection: > file, >> file
+    re.compile(r">>?\s+[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    # Out-File -FilePath / -Path / positional
+    re.compile(r"\bOut-File\s+(?:-(?:FilePath|Path)\s+)?[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    # Set-Content / Add-Content -Path
+    re.compile(r"\b(?:Set|Add)-Content\s+(?:-Path\s+)?[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    # New-Item -Path
+    re.compile(r"\bNew-Item\s+(?:-(?:Path|Name)\s+)?[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    # mkdir / md
+    re.compile(r"\b(?:mkdir|md)\s+[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    # Tee-Object -FilePath
+    re.compile(r"\bTee-Object\s+(?:-FilePath\s+)?[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    # Python/Node writing to files (common agent pattern)
+    re.compile(r"open\([\"']([^\s\"']+)[\"']\s*,\s*[\"'][wa]", re.IGNORECASE),
+]
+
+
+def check_write_scope(command: str, cwd: Path | None) -> str | None:
+    """Block commands that write outside the allowed workspace.
+
+    Returns a reason string if blocked, else None.
+    Only enforced when cwd is set (i.e., scope is defined).
+    """
+    if cwd is None:
+        return None
+
+    allowed = cwd.resolve()
+
+    for pattern in _WRITE_PATTERNS:
+        for match in pattern.finditer(command):
+            target_str = match.group(1)
+            if not target_str or target_str.startswith("$") or target_str.startswith("("):
+                # Skip variable/expression targets — can't resolve statically
+                continue
+
+            # Sensitive path check (absolute match regardless of scope)
+            if _is_sensitive(target_str):
+                return f"Blocked: write targets sensitive path ({target_str})"
+
+            # Resolve relative to cwd
+            target = Path(target_str)
+            if not target.is_absolute():
+                target = cwd / target
+
+            try:
+                resolved = target.resolve()
+            except (OSError, ValueError):
+                continue
+
+            # Check if resolved path is within the allowed directory
+            try:
+                resolved.relative_to(allowed)
+            except ValueError:
+                return (
+                    f"Blocked: write target '{target_str}' resolves outside workspace "
+                    f"({resolved} is not under {allowed})"
+                )
+
+    return None
+
+
 async def run_command(
     command: str,
     *,
@@ -90,6 +180,11 @@ async def run_command(
     if blocked:
         log.warning("BLOCKED command: %s — %s", command[:200], blocked)
         return blocked
+
+    scope_blocked = check_write_scope(command, cwd)
+    if scope_blocked:
+        log.warning("SCOPE BLOCKED command: %s — %s", command[:200], scope_blocked)
+        return scope_blocked
 
     log.info("EXEC [cwd=%s]: %s", cwd or "(default)", command[:200])
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import logging
 import re
 from typing import Any
@@ -11,6 +13,18 @@ from talon_tools.credentials import get as cred
 from .client import MCPClient, MCPClientError
 
 log = logging.getLogger(__name__)
+
+
+def _run_sync(coro):
+    """Run an async coroutine from sync code, even inside a running event loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop — safe to use asyncio.run()
+        return asyncio.run(coro)
+    # Already inside a running loop — offload to a thread
+    with concurrent.futures.ThreadPoolExecutor(1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 _ENV_PATTERN = re.compile(r"\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
@@ -60,9 +74,10 @@ def build_tools(servers: list[dict[str, Any]]) -> list[Tool]:
         )
 
         try:
-            remote_tools = asyncio.run(_discover_tools(client))
+            remote_tools = _run_sync(_discover_tools(client))
         except Exception as e:
             log.error(f"Failed to discover tools from MCP server '{name}' at {url}: {e}")
+            print(f"[MCP] WARNING: {name} tools unavailable — {e}", flush=True)
             continue
 
         for rt in remote_tools:
@@ -70,6 +85,7 @@ def build_tools(servers: list[dict[str, Any]]) -> list[Tool]:
             tools.append(tool)
 
         log.info(f"MCP server '{name}': discovered {len(remote_tools)} tools")
+        print(f"[MCP] {name}: {len(remote_tools)} tools loaded", flush=True)
 
     return tools
 

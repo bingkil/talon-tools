@@ -51,9 +51,10 @@ x = ["httpx", "browser-cookie3"]
 mcp = ["httpx"]
 gemini = ["google-genai>=1.0", "openai>=1.0"]
 jenkins = ["httpx"]
-servicenow = ["aiohttp"]
+servicenow = ["aiohttp", "beautifulsoup4"]
 catholic = ["aiohttp"]
 spotify = ["httpx"]
+docenter = ["aiohttp", "PyJWT", "beautifulsoup4"]
 youtube = ["yt-dlp>=2024.0", "httpx"]
 wa = []  # no Python deps — wraps wacli binary
 all = [
@@ -70,6 +71,7 @@ all = [
     "talon-tools[servicenow]",
     "talon-tools[catholic]",
     "talon-tools[spotify]",
+    "talon-tools[docenter]",
     "talon-tools[youtube]",
     "talon-tools[jenkins]",
     "talon-tools[wa]",

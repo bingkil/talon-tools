@@ -157,6 +157,67 @@ def build_tools() -> list[Tool]:
             return ToolResult(content=f"Error listing jobs: {e}", is_error=True)
 
     # ------------------------------------------------------------------
+    # jenkins_my_builds — find builds triggered by the current user
+    # ------------------------------------------------------------------
+    async def my_builds_handler(args: dict[str, Any]) -> ToolResult:
+        folder = args.get("folder", "")
+        limit = int(args.get("limit") or 20)
+        server = args.get("server")
+        try:
+            client = _get_client(server)
+            user_id = await client.get_my_user_id()
+            if not user_id:
+                return ToolResult(content="Error: could not determine current user.", is_error=True)
+
+            # Single API call per folder level — get jobs + builds + causes
+            all_builds = await client.get_folder_builds_with_causes(folder, limit_per_job=3)
+            my_builds = [b for b in all_builds if b["userId"] == user_id]
+            # Sort by timestamp descending
+            my_builds.sort(key=lambda b: b.get("timestamp") or 0, reverse=True)
+
+            if not my_builds:
+                scope = f" in `{folder}`" if folder else ""
+                return ToolResult(content=f"No recent builds triggered by you{scope}. Try a deeper folder path.")
+
+            lines = [f"**My Builds** ({len(my_builds)} found):\n"]
+            for b in my_builds[:limit]:
+                ts = _ts_to_str(b["timestamp"])
+                dur = _duration_str(b["duration"])
+                lines.append(f"- **{b['job']}** #{b['number']} — {b['result']} ({ts}, {dur})")
+            return ToolResult(content="\n".join(lines))
+        except Exception as e:
+            log.exception("jenkins_my_builds failed")
+            return ToolResult(content=f"Error finding your builds: {e}", is_error=True)
+
+    # ------------------------------------------------------------------
+    # jenkins_search — find jobs by name across all folders
+    # ------------------------------------------------------------------
+    async def search_handler(args: dict[str, Any]) -> ToolResult:
+        query = args.get("query", "")
+        if not query:
+            return ToolResult(content="Error: query is required.", is_error=True)
+        folder = args.get("folder", "")
+        server = args.get("server")
+        try:
+            client = _get_client(server)
+            all_jobs = await client.walk_jobs(folder, max_depth=5)
+            # Case-insensitive substring match on name or fullPath
+            q_lower = query.lower()
+            matches = [j for j in all_jobs if q_lower in j.get("fullPath", "").lower()]
+            if not matches:
+                return ToolResult(content=f"No jobs matching \"{query}\" found.")
+            lines = [f"**Search: \"{query}\"** ({len(matches)} matches):\n"]
+            for job in matches[:20]:
+                status = _color_to_status(job.get("color", ""))
+                lines.append(f"- **{job['fullPath']}** — {status}")
+            if len(matches) > 20:
+                lines.append(f"\n_({len(matches) - 20} more results omitted)_")
+            return ToolResult(content="\n".join(lines))
+        except Exception as e:
+            log.exception("jenkins_search failed")
+            return ToolResult(content=f"Error searching jobs: {e}", is_error=True)
+
+    # ------------------------------------------------------------------
     # jenkins_tree — recursive folder walk
     # ------------------------------------------------------------------
     async def tree_handler(args: dict[str, Any]) -> ToolResult:
@@ -253,6 +314,34 @@ def build_tools() -> list[Tool]:
             return ToolResult(content=f"Error getting logs: {e}", is_error=True)
 
     # ------------------------------------------------------------------
+    # jenkins_params — get job parameter definitions
+    # ------------------------------------------------------------------
+    async def params_handler(args: dict[str, Any]) -> ToolResult:
+        job_name = args.get("job_name", "")
+        if not job_name:
+            return ToolResult(content="Error: job_name is required.", is_error=True)
+        server = args.get("server")
+        try:
+            client = _get_client(server)
+            params = await client.get_job_parameters(job_name)
+            if not params:
+                return ToolResult(content=f"**{job_name}** has no parameters (can be triggered directly).")
+            lines = [f"**Parameters for {job_name}:**\n"]
+            for p in params:
+                required = "Required" if "required" in p.get("description", "").lower() else "Optional"
+                default = p.get("default", "")
+                default_str = f" (default: `{default}`)" if default else ""
+                choices = p.get("choices")
+                choices_str = f" — choices: {choices}" if choices else ""
+                lines.append(f"- **{p['name']}** [{required}]{default_str}{choices_str}")
+                if p.get("description"):
+                    lines.append(f"  {p['description']}")
+            return ToolResult(content="\n".join(lines))
+        except Exception as e:
+            log.exception("jenkins_params failed")
+            return ToolResult(content=f"Error getting parameters: {e}", is_error=True)
+
+    # ------------------------------------------------------------------
     # jenkins_build — trigger a build
     # ------------------------------------------------------------------
     async def build_handler(args: dict[str, Any]) -> ToolResult:
@@ -326,6 +415,134 @@ def build_tools() -> list[Tool]:
             log.exception("jenkins_stop failed")
             return ToolResult(content=f"Error stopping build: {e}", is_error=True)
 
+    # ------------------------------------------------------------------
+    # jenkins_history — build history
+    # ------------------------------------------------------------------
+    async def history_handler(args: dict[str, Any]) -> ToolResult:
+        job_name = args.get("job_name", "")
+        if not job_name:
+            return ToolResult(content="Error: job_name is required.", is_error=True)
+        limit = int(args.get("limit") or 10)
+        server = args.get("server")
+        try:
+            builds = await _get_client(server).get_build_history(job_name, limit)
+            if not builds:
+                return ToolResult(content=f"No build history for {job_name}.")
+            lines = [f"**Build History — {job_name}** (last {len(builds)}):\n"]
+            for b in builds:
+                num = b.get("number", "?")
+                result = b.get("result") or ("Building..." if b.get("building") else "Pending")
+                duration = _duration_str(b.get("duration"))
+                started = _ts_to_str(b.get("timestamp"))
+                lines.append(f"- #{num} — **{result}** ({duration}) — {started}")
+            return ToolResult(content="\n".join(lines))
+        except Exception as e:
+            log.exception("jenkins_history failed")
+            return ToolResult(content=f"Error getting build history: {e}", is_error=True)
+
+    # ------------------------------------------------------------------
+    # jenkins_test_results — test report from a build
+    # ------------------------------------------------------------------
+    async def test_results_handler(args: dict[str, Any]) -> ToolResult:
+        job_name = args.get("job_name", "")
+        if not job_name:
+            return ToolResult(content="Error: job_name is required.", is_error=True)
+        build_number = args.get("build_number", "lastBuild")
+        server = args.get("server")
+        try:
+            report = await _get_client(server).get_test_results(job_name, build_number)
+            if not report:
+                return ToolResult(content=f"No test results for {job_name} #{build_number}. The job may not produce a test report.")
+            passed = report.get("passCount", 0)
+            failed = report.get("failCount", 0)
+            skipped = report.get("skipCount", 0)
+            duration = report.get("duration", 0)
+            total = passed + failed + skipped
+            lines = [
+                f"**Test Results — {job_name} #{build_number}**\n",
+                f"**Total:** {total} | **Passed:** {passed} | **Failed:** {failed} | **Skipped:** {skipped}",
+                f"**Duration:** {duration:.1f}s",
+            ]
+            # Show failed tests
+            if failed > 0:
+                lines.append("\n**Failed Tests:**")
+                for suite in report.get("suites", []):
+                    for case in suite.get("cases", []):
+                        if case.get("status") in ("FAILED", "REGRESSION"):
+                            name = case.get("name", "?")
+                            error = case.get("errorDetails", "")
+                            lines.append(f"- **{suite.get('name', '')}/{name}**")
+                            if error:
+                                lines.append(f"  ```\n  {error[:300]}\n  ```")
+            return ToolResult(content="\n".join(lines))
+        except Exception as e:
+            log.exception("jenkins_test_results failed")
+            return ToolResult(content=f"Error getting test results: {e}", is_error=True)
+
+    # ------------------------------------------------------------------
+    # jenkins_cancel_queue — cancel a queued item
+    # ------------------------------------------------------------------
+    async def cancel_queue_handler(args: dict[str, Any]) -> ToolResult:
+        queue_id = args.get("queue_id")
+        if queue_id is None:
+            return ToolResult(content="Error: queue_id is required.", is_error=True)
+        server = args.get("server")
+        try:
+            await _get_client(server).cancel_queue_item(int(queue_id))
+            return ToolResult(content=f"Queue item {queue_id} cancelled.")
+        except Exception as e:
+            log.exception("jenkins_cancel_queue failed")
+            return ToolResult(content=f"Error cancelling queue item: {e}", is_error=True)
+
+    # ------------------------------------------------------------------
+    # jenkins_enable / jenkins_disable — toggle job state
+    # ------------------------------------------------------------------
+    async def enable_handler(args: dict[str, Any]) -> ToolResult:
+        job_name = args.get("job_name", "")
+        if not job_name:
+            return ToolResult(content="Error: job_name is required.", is_error=True)
+        server = args.get("server")
+        try:
+            await _get_client(server).enable_job(job_name)
+            return ToolResult(content=f"Job **{job_name}** enabled.")
+        except Exception as e:
+            log.exception("jenkins_enable failed")
+            return ToolResult(content=f"Error enabling job: {e}", is_error=True)
+
+    async def disable_handler(args: dict[str, Any]) -> ToolResult:
+        job_name = args.get("job_name", "")
+        if not job_name:
+            return ToolResult(content="Error: job_name is required.", is_error=True)
+        server = args.get("server")
+        try:
+            await _get_client(server).disable_job(job_name)
+            return ToolResult(content=f"Job **{job_name}** disabled.")
+        except Exception as e:
+            log.exception("jenkins_disable failed")
+            return ToolResult(content=f"Error disabling job: {e}", is_error=True)
+
+    # ------------------------------------------------------------------
+    # jenkins_system — system information
+    # ------------------------------------------------------------------
+    async def system_handler(args: dict[str, Any]) -> ToolResult:
+        server = args.get("server")
+        try:
+            info = await _get_client(server).get_system_info()
+            lines = [
+                "**Jenkins System Info**\n",
+                f"**Mode:** {info.get('mode', '?')}",
+                f"**Executors:** {info.get('numExecutors', '?')}",
+                f"**Description:** {info.get('nodeDescription', '')}",
+                f"**Quieting Down:** {info.get('quietingDown', False)}",
+            ]
+            pv = info.get("primaryView", {})
+            if pv:
+                lines.append(f"**Primary View:** {pv.get('name', '?')}")
+            return ToolResult(content="\n".join(lines))
+        except Exception as e:
+            log.exception("jenkins_system failed")
+            return ToolResult(content=f"Error getting system info: {e}", is_error=True)
+
     # Build the server property description dynamically
     server_prop = {
         "type": "string",
@@ -353,6 +570,45 @@ def build_tools() -> list[Tool]:
                 },
             },
             handler=jobs_handler,
+        ),
+        Tool(
+            name="jenkins_search",
+            description="Search for Jenkins jobs by name across all folders. Finds jobs matching a keyword anywhere in the folder hierarchy.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search term (matches job name or full path, case-insensitive).",
+                    },
+                    "folder": {
+                        "type": "string",
+                        "description": "Starting folder to search from (empty for root).",
+                    },
+                    "server": server_prop,
+                },
+                "required": ["query"],
+            },
+            handler=search_handler,
+        ),
+        Tool(
+            name="jenkins_my_builds",
+            description="Find recent builds triggered by the current user. Scans jobs in a folder for builds you started.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "folder": {
+                        "type": "string",
+                        "description": "Folder to search in (empty for root — can be slow on large instances).",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max builds to return (default 20).",
+                    },
+                    "server": server_prop,
+                },
+            },
+            handler=my_builds_handler,
         ),
         Tool(
             name="jenkins_tree",
@@ -418,6 +674,22 @@ def build_tools() -> list[Tool]:
             handler=logs_handler,
         ),
         Tool(
+            name="jenkins_params",
+            description="Get parameter definitions for a Jenkins job. Shows what inputs are needed before triggering a build.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "job_name": {
+                        "type": "string",
+                        "description": "Name of the Jenkins job.",
+                    },
+                    "server": server_prop,
+                },
+                "required": ["job_name"],
+            },
+            handler=params_handler,
+        ),
+        Tool(
             name="jenkins_build",
             description="Trigger a Jenkins build. Optionally pass parameters for parameterized jobs.",
             parameters={
@@ -478,5 +750,104 @@ def build_tools() -> list[Tool]:
                 "required": ["job_name"],
             },
             handler=stop_handler,
+        ),
+        Tool(
+            name="jenkins_history",
+            description="Get build history for a Jenkins job — shows recent builds with results and duration.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "job_name": {
+                        "type": "string",
+                        "description": "Name of the Jenkins job.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Number of recent builds to return. Default: 10.",
+                    },
+                    "server": server_prop,
+                },
+                "required": ["job_name"],
+            },
+            handler=history_handler,
+        ),
+        Tool(
+            name="jenkins_test_results",
+            description="Get test results (JUnit/xUnit) from a Jenkins build. Shows pass/fail counts and failed test details.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "job_name": {
+                        "type": "string",
+                        "description": "Name of the Jenkins job.",
+                    },
+                    "build_number": {
+                        "type": "integer",
+                        "description": "Build number. Omit for latest build.",
+                    },
+                    "server": server_prop,
+                },
+                "required": ["job_name"],
+            },
+            handler=test_results_handler,
+        ),
+        Tool(
+            name="jenkins_cancel_queue",
+            description="Cancel an item waiting in the Jenkins build queue.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "queue_id": {
+                        "type": "integer",
+                        "description": "Queue item ID (from jenkins_queue output).",
+                    },
+                    "server": server_prop,
+                },
+                "required": ["queue_id"],
+            },
+            handler=cancel_queue_handler,
+        ),
+        Tool(
+            name="jenkins_enable",
+            description="Enable a disabled Jenkins job.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "job_name": {
+                        "type": "string",
+                        "description": "Name of the Jenkins job to enable.",
+                    },
+                    "server": server_prop,
+                },
+                "required": ["job_name"],
+            },
+            handler=enable_handler,
+        ),
+        Tool(
+            name="jenkins_disable",
+            description="Disable a Jenkins job (prevents new builds).",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "job_name": {
+                        "type": "string",
+                        "description": "Name of the Jenkins job to disable.",
+                    },
+                    "server": server_prop,
+                },
+                "required": ["job_name"],
+            },
+            handler=disable_handler,
+        ),
+        Tool(
+            name="jenkins_system",
+            description="Get Jenkins system information — mode, executor count, status.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "server": server_prop,
+                },
+            },
+            handler=system_handler,
         ),
     ]
