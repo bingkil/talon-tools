@@ -70,7 +70,9 @@ def build_tools(root_dir: Path) -> list[Tool]:
             name="ws_write",
             description=(
                 "Create or overwrite a file in the workspace. "
-                "Directories are created automatically. Use relative paths."
+                "Directories are created automatically. Use relative paths. "
+                "For large files or complex markdown, prefer ws_update "
+                "(writes one section at a time and is more reliable)."
             ),
             parameters={
                 "type": "object",

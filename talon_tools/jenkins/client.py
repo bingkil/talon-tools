@@ -171,6 +171,33 @@ class JenkinsClient:
                 return f"... ({len(lines) - tail} lines truncated) ...\n" + "\n".join(lines[-tail:])
             return r.text
 
+    async def get_job_parameters(self, name: str) -> list[dict]:
+        """Get parameter definitions for a parameterized job.
+
+        Returns list of dicts with: name, type, default, description, choices.
+        """
+        async with self._client() as client:
+            r = await client.get(
+                f"{self._job_path(name)}/api/json",
+                params={"tree": "property[parameterDefinitions[name,type,defaultParameterValue[value],description,choices]]"},
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        params: list[dict] = []
+        for prop in data.get("property", []):
+            for pdef in prop.get("parameterDefinitions", []):
+                entry: dict = {
+                    "name": pdef.get("name", ""),
+                    "type": pdef.get("type", "").replace("ParameterDefinition", ""),
+                    "description": pdef.get("description", ""),
+                    "default": pdef.get("defaultParameterValue", {}).get("value", ""),
+                }
+                if pdef.get("choices"):
+                    entry["choices"] = pdef["choices"]
+                params.append(entry)
+        return params
+
     async def trigger_build(self, name: str, parameters: dict | None = None) -> str:
         """Trigger a build. Returns queue item URL."""
         async with self._client() as client:
@@ -293,3 +320,147 @@ class JenkinsClient:
                     "type": "job",
                 })
         return result
+
+    # ------------------------------------------------------------------
+    # Extended operations (new)
+    # ------------------------------------------------------------------
+
+    async def get_build_history(self, name: str, limit: int = 10) -> list[dict]:
+        """Get recent build history for a job."""
+        async with self._client() as client:
+            r = await client.get(
+                f"{self._job_path(name)}/api/json",
+                params={
+                    "tree": f"builds[number,result,timestamp,duration,building]{{0,{limit}}}"
+                },
+            )
+            r.raise_for_status()
+            return r.json().get("builds", [])
+
+    async def get_test_results(self, name: str, number: int | str = "lastBuild") -> dict:
+        """Get test results for a build. Returns empty dict if no test report."""
+        async with self._client() as client:
+            try:
+                r = await client.get(
+                    f"{self._job_path(name)}/{number}/testReport/api/json",
+                    params={"tree": "failCount,passCount,skipCount,duration,suites[name,cases[name,status,duration,errorDetails]]"},
+                )
+                r.raise_for_status()
+                return r.json()
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 404:
+                    return {}
+                raise
+
+    async def cancel_queue_item(self, queue_id: int) -> None:
+        """Cancel an item in the build queue."""
+        async with self._client() as client:
+            crumb = await self._get_crumb(client)
+            r = await client.post(
+                f"/queue/cancelItem",
+                headers=crumb,
+                params={"id": str(queue_id)},
+            )
+            # Jenkins returns 204 or 302 on success
+            if r.status_code >= 400:
+                r.raise_for_status()
+
+    async def enable_job(self, name: str) -> None:
+        """Enable a disabled job."""
+        async with self._client() as client:
+            crumb = await self._get_crumb(client)
+            r = await client.post(
+                f"{self._job_path(name)}/enable",
+                headers=crumb,
+            )
+            r.raise_for_status()
+
+    async def disable_job(self, name: str) -> None:
+        """Disable a job."""
+        async with self._client() as client:
+            crumb = await self._get_crumb(client)
+            r = await client.post(
+                f"{self._job_path(name)}/disable",
+                headers=crumb,
+            )
+            r.raise_for_status()
+
+    async def get_system_info(self) -> dict:
+        """Get Jenkins system information."""
+        async with self._client() as client:
+            r = await client.get(
+                "/api/json",
+                params={"tree": "mode,nodeDescription,numExecutors,quietingDown,useSecurity,primaryView[name]"},
+            )
+            r.raise_for_status()
+            return r.json()
+
+    async def get_my_user_id(self) -> str:
+        """Get the current authenticated user's ID."""
+        async with self._client() as client:
+            r = await client.get("/me/api/json", params={"tree": "id,fullName"})
+            r.raise_for_status()
+            return r.json().get("id", "")
+
+    async def get_builds_with_causes(self, name: str, limit: int = 5) -> list[dict]:
+        """Get recent builds for a job including trigger cause userId."""
+        async with self._client() as client:
+            r = await client.get(
+                f"{self._job_path(name)}/api/json",
+                params={
+                    "tree": f"builds[number,result,timestamp,duration,building,actions[causes[userId,userName,shortDescription]]]{{0,{limit}}}"
+                },
+            )
+            r.raise_for_status()
+            return r.json().get("builds", [])
+
+    async def get_folder_builds_with_causes(self, folder: str = "", limit_per_job: int = 3, recurse: bool = True) -> list[dict]:
+        """Get jobs in a folder with recent builds + causes in a single API call.
+
+        Returns flat list of {job_name, number, result, timestamp, duration, userId, userName}.
+        Only includes builds that have a UserIdCause.
+        If recurse=True, also descends one level into sub-folders.
+        """
+        async with self._client() as client:
+            path = self._job_path(folder) if folder else ""
+            r = await client.get(
+                f"{path}/api/json",
+                params={
+                    "tree": f"jobs[name,fullName,_class,builds[number,result,timestamp,duration,building,actions[causes[userId,userName]]]{{0,{limit_per_job}}}]"
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        results: list[dict] = []
+        sub_folders: list[str] = []
+        for job in data.get("jobs", []):
+            cls = job.get("_class", "")
+            job_name = job.get("fullName", job.get("name", ""))
+            if "Folder" in cls or "OrganizationFolder" in cls:
+                if recurse:
+                    sub_folders.append(job_name)
+                continue
+            for build in job.get("builds", []):
+                for action in build.get("actions", []):
+                    for cause in action.get("causes", []):
+                        if cause.get("userId"):
+                            results.append({
+                                "job": job_name,
+                                "number": build.get("number"),
+                                "result": build.get("result") or ("BUILDING" if build.get("building") else "UNKNOWN"),
+                                "timestamp": build.get("timestamp"),
+                                "duration": build.get("duration"),
+                                "userId": cause["userId"],
+                                "userName": cause.get("userName", ""),
+                            })
+
+        # Recurse one level into sub-folders
+        if sub_folders:
+            tasks = [self.get_folder_builds_with_causes(sf, limit_per_job=limit_per_job, recurse=False) for sf in sub_folders]
+            sub_results = await asyncio.gather(*tasks, return_exceptions=True)
+            for sr in sub_results:
+                if isinstance(sr, list):
+                    results.extend(sr)
+
+        return results

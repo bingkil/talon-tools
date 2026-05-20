@@ -35,14 +35,13 @@ def ws_read(root: Path, filepath: str) -> str:
 def ws_write(root: Path, filepath: str, content: str) -> str:
     """Write (create or overwrite) a file in the workspace."""
     path = _resolve(root, filepath)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
     if not content:
         return (
-            f"WARNING: wrote empty file {filepath} (0 bytes) — "
-            f"content was empty. If intentional, ignore this. "
-            f"If not, re-call ws_write with the intended content."
+            f"ERROR: content is empty — {filepath} NOT written. "
+            f"Re-call ws_write with the intended content."
         )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
     return f"Written: {filepath} ({len(content)} bytes)"
 
 
