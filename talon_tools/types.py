@@ -23,6 +23,8 @@ class Tool:
     description: str
     parameters: dict[str, Any]  # JSON Schema
     handler: Callable[[dict[str, Any]], Awaitable[ToolResult]]
+    requires_credentials: list[str] = field(default_factory=list)
+    """Credential keys this tool needs (e.g. ['KIWI_API_KEY']). Empty = no auth."""
 
 @dataclass
 class ToolResult:

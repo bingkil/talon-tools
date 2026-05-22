@@ -17,7 +17,18 @@ from functools import partial
 from typing import Any
 
 from talon_tools import Tool, ToolResult
-from . import gmail, calendar, docs, contacts, photos, tasks, keep, sheets, drive, youtube
+from . import gmail, calendar, docs, contacts, photos, tasks, keep, sheets, drive, youtube, maps
+from .maps import GOOGLE_MAPS_API_KEY
+
+
+REQUIRED_CREDENTIALS = {
+    GOOGLE_MAPS_API_KEY: "https://console.cloud.google.com/apis/credentials",
+}
+
+
+def required_credentials() -> dict[str, str]:
+    """Return credential keys this tool bundle needs, mapped to signup URLs."""
+    return REQUIRED_CREDENTIALS
 
 
 async def _run(fn, **kwargs):
@@ -26,7 +37,7 @@ async def _run(fn, **kwargs):
     return await loop.run_in_executor(None, partial(fn, **kwargs))
 
 
-def _tool(name: str, description: str, parameters: dict, fn) -> Tool:
+def _tool(name: str, description: str, parameters: dict, fn, requires_credentials: list[str] | None = None) -> Tool:
     """Create a Tool wrapping a sync Google API function.
 
     LLM-provided args are passed directly as kwargs to the function.
@@ -35,7 +46,8 @@ def _tool(name: str, description: str, parameters: dict, fn) -> Tool:
     async def handler(args: dict[str, Any]) -> ToolResult:
         result = await _run(fn, **args)
         return ToolResult(content=result)
-    return Tool(name=name, description=description, parameters=parameters, handler=handler)
+    return Tool(name=name, description=description, parameters=parameters, handler=handler,
+                requires_credentials=requires_credentials or [])
 
 
 def _bind(fn, token_file):
@@ -674,6 +686,59 @@ def youtube_tools(token_file=None) -> list[Tool]:
 
 
 # ---------------------------------------------------------------------------
+# Maps / Places tools (API key-based, no OAuth token needed)
+# ---------------------------------------------------------------------------
+
+def maps_tools() -> list[Tool]:
+    creds = [GOOGLE_MAPS_API_KEY]
+    return [
+        _tool("maps_geocode",
+              "Convert an address or place name to geographic coordinates (latitude/longitude).",
+              {"type": "object", "properties": {
+                  "address": {"type": "string", "description": "Address or place name to geocode"},
+              }, "required": ["address"]},
+              maps.geocode, requires_credentials=creds),
+
+        _tool("maps_reverse_geocode",
+              "Convert coordinates to a human-readable address.",
+              {"type": "object", "properties": {
+                  "latitude": {"type": "number", "description": "Latitude"},
+                  "longitude": {"type": "number", "description": "Longitude"},
+              }, "required": ["latitude", "longitude"]},
+              maps.reverse_geocode, requires_credentials=creds),
+
+        _tool("maps_directions",
+              "Get driving/walking/transit directions between two locations. Returns step-by-step instructions with distance and duration.",
+              {"type": "object", "properties": {
+                  "origin": {"type": "string", "description": "Starting point (address or place name)"},
+                  "destination": {"type": "string", "description": "End point (address or place name)"},
+                  "mode": {"type": "string", "enum": ["driving", "walking", "bicycling", "transit"], "description": "Travel mode. Default: driving."},
+              }, "required": ["origin", "destination"]},
+              maps.directions, requires_credentials=creds),
+
+        _tool("maps_places_nearby",
+              "Find places (restaurants, hotels, attractions, etc.) near a location. Use maps_geocode first to get coordinates.",
+              {"type": "object", "properties": {
+                  "latitude": {"type": "number", "description": "Center latitude"},
+                  "longitude": {"type": "number", "description": "Center longitude"},
+                  "radius": {"type": "integer", "description": "Search radius in meters (max 50000). Default: 1000."},
+                  "place_type": {"type": "string", "description": "Place type filter (e.g. 'restaurant', 'hotel', 'tourist_attraction', 'pharmacy')"},
+                  "keyword": {"type": "string", "description": "Keyword to filter results (e.g. 'sushi', 'budget')"},
+              }, "required": ["latitude", "longitude"]},
+              maps.places_nearby, requires_credentials=creds),
+
+        _tool("maps_distance_matrix",
+              "Get travel distance and time between multiple origins and destinations.",
+              {"type": "object", "properties": {
+                  "origins": {"type": "string", "description": "Pipe-separated origins (e.g. 'New York|Boston')"},
+                  "destinations": {"type": "string", "description": "Pipe-separated destinations (e.g. 'Philadelphia|Washington DC')"},
+                  "mode": {"type": "string", "enum": ["driving", "walking", "bicycling", "transit"], "description": "Travel mode. Default: driving."},
+              }, "required": ["origins", "destinations"]},
+              maps.distance_matrix, requires_credentials=creds),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # All tools
 # ---------------------------------------------------------------------------
 
@@ -694,5 +759,6 @@ def build_tools(token_file=None, **_kwargs) -> list[Tool]:
         keep_tools() +
         sheets_tools(token_file) +
         drive_tools(token_file) +
-        youtube_tools(token_file)
+        youtube_tools(token_file) +
+        maps_tools()
     )

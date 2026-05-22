@@ -1,1 +1,1 @@
-"""Google API tools — Gmail, Calendar, Docs, Contacts, Photos, Tasks, Keep, Sheets."""
+"""Google API tools — Gmail, Calendar, Docs, Contacts, Photos, Tasks, Keep, Sheets, Drive, YouTube, Maps."""

@@ -57,6 +57,8 @@ spotify = ["httpx"]
 docenter = ["aiohttp", "PyJWT", "beautifulsoup4"]
 youtube = ["yt-dlp>=2024.0", "httpx"]
 wa = []  # no Python deps — wraps wacli binary
+weather = []  # no deps — uses stdlib urllib
+travel = []  # no deps — uses stdlib urllib
 all = [
     "talon-tools[google]",
     "talon-tools[gemini]",
@@ -75,6 +77,8 @@ all = [
     "talon-tools[youtube]",
     "talon-tools[jenkins]",
     "talon-tools[wa]",
+    "talon-tools[weather]",
+    "talon-tools[travel]",
 ]
 
 [project.scripts]
