@@ -7,10 +7,15 @@ import logging
 from typing import Any
 
 from talon_tools import Tool, ToolResult
+from talon_tools.credentials import CredentialRequirement, validate
 
 from .client import NotionClient
 
 log = logging.getLogger(__name__)
+
+CREDENTIALS = [
+    CredentialRequirement("NOTION_TOKEN", "Notion integration token", hint="https://www.notion.so/my-integrations"),
+]
 
 
 def _format_search_results(results: list[dict]) -> str:
@@ -58,6 +63,7 @@ def _format_db_results(results: list[dict]) -> str:
 
 def build_tools() -> list[Tool]:
     """Return Notion tools for agent use."""
+    validate("notion", CREDENTIALS)
 
     _client: NotionClient | None = None
 

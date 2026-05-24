@@ -491,9 +491,9 @@ def save_client_credentials(
 
 def _get_token_email(token_path: Path) -> str | None:
     """Read the email from an existing OAuth token file (encrypted or plaintext)."""
-    from .credential_store import load_token
+    from talon_tools.credentials import get as cred
 
-    token_json = load_token(token_path)
+    token_json = cred("GOOGLE_TOKEN", "")
     if not token_json:
         return None
     try:

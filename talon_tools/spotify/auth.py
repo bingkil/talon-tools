@@ -26,8 +26,7 @@ import urllib.parse
 from pathlib import Path
 
 import httpx
-from talon_tools.credentials import get as cred
-from talon_tools.credential_store import save_encrypted, load_encrypted
+from talon_tools.credentials import get as cred, set_credential
 
 # Scopes needed for full playback control + read + playlist management
 SCOPES = " ".join([
@@ -108,9 +107,6 @@ def get_access_token(agent_dir: Path | None = None) -> str:
     If no cached token exists, raises RuntimeError with instructions.
     Run `python -m talon_tools.spotify.setup` first.
     """
-    token_path = Path(_token_file(agent_dir))
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-
     client_id = cred("SPOTIFY_CLIENT_ID", "")
     client_secret = cred("SPOTIFY_CLIENT_SECRET", "")
     redirect_uri = os.environ.get("SPOTIFY_REDIRECT_URI", DEFAULT_REDIRECT_URI)
@@ -121,7 +117,7 @@ def get_access_token(agent_dir: Path | None = None) -> str:
             "Register an app at https://developer.spotify.com/dashboard"
         )
 
-    cached = load_encrypted(token_path)
+    cached = cred("SPOTIFY_TOKEN", "")
     if not cached:
         auth_url = get_authorize_url(client_id, redirect_uri)
         raise RuntimeError(
@@ -135,6 +131,6 @@ def get_access_token(agent_dir: Path | None = None) -> str:
     # Refresh if expired (with 60s buffer)
     if token_info.get("expires_at", 0) < time.time() + 60:
         token_info = _refresh_token(token_info, client_id, client_secret)
-        save_encrypted(json.dumps(token_info), token_path)
+        set_credential("SPOTIFY_TOKEN", json.dumps(token_info))
 
     return token_info["access_token"]

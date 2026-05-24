@@ -22,7 +22,7 @@
 
 Features:
 - **Multi-service**: Google Workspace, Microsoft 365, Atlassian, Notion, Spotify, X, Facebook, ServiceNow, web search, file system, terminal
-- **Credential management**: Pluggable storage (`.env`, YAML, env vars, custom backends)
+- **Credential management**: Encrypted stores with per-agent scoping, config.yaml env, env vars
 - **Interactive onboarding**: `python -m talon_tools.cli setup` walks through OAuth flows, cookie extraction, and credential entry
 - **Modular installs**: Only install what you need via pip extras
 
@@ -40,7 +40,7 @@ Requires **Python 3.11+**.
 
 | Module | Extra | Description |
 |--------|-------|-------------|
-| `credentials` | *(core)* | Unified credential manager — .env, YAML, or custom backend |
+| `credentials` | *(core)* | Unified credential manager — encrypted stores, config.yaml, env vars |
 | `atlassian` | `[atlassian]` | Jira & Confluence API client |
 | `google` | `[google]` | Gmail, Calendar, Drive, Sheets, Keep, Contacts, Photos, YouTube |
 | `microsoft` | `[microsoft]` | Outlook, Teams, Calendar via Microsoft Graph |
@@ -70,49 +70,59 @@ Features:
 - Browser cookie extraction (X, Facebook)
 - Signal: auto-downloads signal-cli + Java to `~/.config/talon/`
 - Falls back to manual entry if automation fails
-- Configurable credential storage (`.env` or YAML)
+- Encrypted credential storage (Fernet AES-128-CBC + HMAC-SHA256)
 
 ## Credentials
 
 ```python
-from talon_tools.credentials import configure_storage, get, set_credential
+from talon_tools.credentials import get, set_agent_context
 
-# .env file
-configure_storage("env", path=".env")
+# Set agent context (done automatically by the runtime)
+set_agent_context("/path/to/flock/my-agent")
 
-# YAML file
-configure_storage("yaml", path="credentials.yaml")
-
-# Custom path (format auto-detected from extension)
-configure_storage("/path/to/secrets.env")
+# Read — layered lookup (agent store → agent config.yaml → flock store → env var)
+token = get("TELEGRAM_TOKEN")
+url = get("JIRA_URL", "")  # with default
 ```
 
-Lookup order: **file store → environment variables** (env vars always work as fallback/override).
+Lookup order:
+1. **Agent encrypted store** (`<agent>/.credentials.enc`) — per-agent secrets
+2. **Agent config.yaml `env:`** — non-sensitive per-agent config
+3. **Flock encrypted store** (`<flock>/.credentials.enc`) — shared secrets
+4. **Custom backend** (if configured programmatically)
+5. **Environment variables** (`os.environ`) — always works as fallback
 
-### .env format
+### Encrypted store format
 
+Credentials are stored in `.credentials.enc` files using Fernet encryption. A single `.encryption_key` file at the flock root is shared by all stores (agent stores inherit from parent).
+
+Manage via CLI:
 ```bash
-JIRA_URL=https://yourcompany.atlassian.net
-JIRA_USERNAME=you@company.com
-JIRA_API_TOKEN=your-api-token
-NOTION_TOKEN=secret_abc123
+talon creds list                     # list flock-level credentials
+talon creds set TELEGRAM_TOKEN       # set flock-level credential
+talon creds set --agent john TOKEN   # set agent-level credential
+talon creds get TELEGRAM_TOKEN       # read a credential
+talon creds delete OLD_KEY           # remove a credential
 ```
 
-### YAML format
+### Agent config.yaml `env:` section
+
+Non-sensitive configuration can live directly in the agent's `config.yaml`:
 
 ```yaml
-jira:
-  url: https://yourcompany.atlassian.net
-  username: you@company.com
-  api_token: your-api-token
-
-notion:
-  token: secret_abc123
+# my-agent/config.yaml
+provider: gemini
+model: gemini-2.5-flash
+tools: [atlassian, terminal]
+env:
+  JIRA_URL: https://company.atlassian.net
+  JIRA_USERNAME: you@company.com
+  JENKINS_URL: https://jenkins.company.com
 ```
 
-Nested YAML keys auto-flatten: `jira.url` → `JIRA_URL`.
+These values are available via `get("JIRA_URL")` at runtime.
 
-See [`credentials.yaml.example`](credentials.yaml.example) for all available keys.
+See [`credentials.yaml.example`](credentials.yaml.example) for all available credential keys.
 
 ## Quick Start
 
@@ -123,7 +133,7 @@ import asyncio
 from talon_tools.atlassian.client import JiraClient
 from talon_tools import credentials
 
-credentials.configure_storage("env", path=".env")
+credentials.set_agent_context("/path/to/flock/my-agent")
 
 async def main():
     jira = JiraClient()

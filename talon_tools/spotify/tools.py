@@ -7,13 +7,20 @@ from pathlib import Path
 from typing import Any
 
 from talon_tools import Tool, ToolResult
+from talon_tools.credentials import CredentialRequirement, validate
 from .client import SpotifyClient, format_now_playing, format_track
 
 log = logging.getLogger(__name__)
 
+CREDENTIALS = [
+    CredentialRequirement("SPOTIFY_CLIENT_ID", "Spotify app client ID", hint="https://developer.spotify.com/dashboard"),
+    CredentialRequirement("SPOTIFY_CLIENT_SECRET", "Spotify app client secret"),
+]
+
 
 def build_tools(agent_dir: Path | None = None) -> list[Tool]:
     """Return Spotify tools."""
+    validate("spotify", CREDENTIALS)
 
     client = SpotifyClient(agent_dir=agent_dir)
 

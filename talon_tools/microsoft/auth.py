@@ -17,14 +17,8 @@ First-time setup / re-auth:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import msal
-from talon_tools.credentials import get as cred
-from talon_tools.credential_store import save_encrypted, load_encrypted
-
-_REPO_DIR = Path.cwd() / "talon" / "microsoft"
-_FALLBACK_DIR = Path.home() / ".config" / "talon-microsoft"
+from talon_tools.credentials import get as cred, set_credential
 
 # Microsoft Graph PowerShell (first-party, widely pre-consented)
 _DEFAULT_CLIENT_ID = "14d82eec-204b-4c2f-b7e8-296a70dab67e"
@@ -43,24 +37,13 @@ SCOPES = [
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
 
-def _token_path() -> Path:
-    val = cred("MS_TOKEN_FILE", "")
-    if val:
-        return Path(val)
-    repo = _REPO_DIR / "token.json"
-    if repo.exists():
-        return repo
-    return _FALLBACK_DIR / "token.json"
-
-
 def _build_app() -> msal.PublicClientApplication:
     """Build an MSAL public client app with token cache."""
     client_id = cred("MS_CLIENT_ID", _DEFAULT_CLIENT_ID)
     tenant_id = cred("MS_TENANT_ID", _DEFAULT_TENANT_ID)
 
     cache = msal.SerializableTokenCache()
-    token_path = _token_path()
-    cached = load_encrypted(token_path)
+    cached = cred("MS_TOKEN_CACHE", "")
     if cached:
         cache.deserialize(cached)
 
@@ -73,11 +56,10 @@ def _build_app() -> msal.PublicClientApplication:
 
 
 def _save_cache(app: msal.PublicClientApplication) -> None:
-    """Persist the token cache (encrypted) if it changed."""
+    """Persist the token cache if it changed."""
     cache = app.token_cache
     if cache.has_state_changed:
-        token_path = _token_path()
-        save_encrypted(cache.serialize(), token_path)
+        set_credential("MS_TOKEN_CACHE", cache.serialize())
 
 
 def get_token() -> str:
@@ -118,8 +100,7 @@ def authorize_interactive() -> str:
         )
 
     _save_cache(app)
-    token_path = _token_path()
-    print(f"Token cached to {token_path}")
+    print("Token cached to credential store")
     return result["access_token"]
 
 

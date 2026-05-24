@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -26,8 +27,10 @@ def required_credentials() -> dict[str, str]:
 
 
 async def _run(fn, **kwargs):
+    """Run a sync function in a thread pool, preserving contextvars."""
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, partial(fn, **kwargs))
+    ctx = contextvars.copy_context()
+    return await loop.run_in_executor(None, partial(ctx.run, fn, **kwargs))
 
 
 def build_tools(agent_dir: Path | None = None, **_kwargs) -> list[Tool]:

@@ -1,304 +1,222 @@
 """
-Unified credentials manager for talon-tools.
+Credential contract for talon-tools.
 
-Lookup order (first match wins):
-    1. File store (loaded from .env or .yaml depending on backend)
-    2. Environment variables (always checked as fallback)
+talon-tools is a platform-agnostic tool library. It does NOT own credential
+storage — it defines the interface that host programs must implement.
 
-Storage backends (set via configure_storage):
-    "env"   — .env file (KEY=value dotenv format). Default. Cross-platform.
-    "yaml"  — credentials.yaml (flat or nested service groups).
-    Custom path — format inferred from extension (.env → dotenv, .yaml/.yml → YAML).
+Host programs (e.g. Talon, standalone scripts, test harnesses) inject a
+CredentialProvider at startup via `init(provider)`. Tools read credentials
+through the module-level `get()` function which delegates to the provider.
 
-Usage:
-    from talon_tools.credentials import get, set_credential, configure_storage
+If no provider is injected, falls back to environment variables only.
 
-    # Caller (e.g. talon) configures where creds live:
-    configure_storage("env", path="/path/to/project/.env")
-
-    # Tools read:
+Usage (tool code):
+    from talon_tools.credentials import get
     url = get("JIRA_URL")
-    token = get("NOTION_TOKEN", "")
 
-    # Onboarding writes:
-    set_credential("JIRA_URL", "https://yourcompany.atlassian.net")
+Usage (host program):
+    from talon_tools import credentials
+    credentials.init(my_provider)
 """
 
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any, Callable, Literal
+from dataclasses import dataclass, field
+from typing import Any, Protocol, runtime_checkable
+
 
 _MISSING = object()
-_Backend = Callable[[str, Any], str]
-
-# In-memory store (populated from file)
-_store: dict[str, str] = {}
-# Custom programmatic backend
-_custom: _Backend | None = None
-# Active storage file path and format
-_storage_path: Path | None = None
-_storage_format: Literal["env", "yaml"] = "env"
 
 
 # ---------------------------------------------------------------------------
-# Configuration
+# Contract types
 # ---------------------------------------------------------------------------
 
-def configure_storage(
-    backend: Literal["env", "yaml"] | str = "env",
-    path: str | Path | None = None,
-) -> None:
-    """Configure where credentials are stored and read from.
+@dataclass
+class CredentialRequirement:
+    """Declares a credential that a tool needs to function.
+
+    Attributes:
+        key: Environment-style key name (e.g. "JIRA_URL").
+        description: Human-readable explanation of what this credential is.
+        required: If True, the tool cannot function without this.
+                  If False, it's optional (degraded functionality without it).
+        hint: Optional URL or instruction to help the user obtain this credential.
+    """
+    key: str
+    description: str
+    required: bool = True
+    hint: str = ""
+
+
+class MissingCredentialsError(Exception):
+    """Raised when a tool is missing required credentials.
+
+    Attributes:
+        tool: Name of the tool (e.g. "atlassian", "google").
+        missing: List of missing credential requirements.
+    """
+
+    def __init__(self, tool: str, missing: list[CredentialRequirement]):
+        self.tool = tool
+        self.missing = missing
+        keys = ", ".join(r.key for r in missing)
+        lines = [f"Tool '{tool}' is missing required credentials: {keys}", ""]
+        for req in missing:
+            line = f"  - {req.key}: {req.description}"
+            if req.hint:
+                line += f"\n    → {req.hint}"
+            lines.append(line)
+        super().__init__("\n".join(lines))
+
+
+@runtime_checkable
+class CredentialProvider(Protocol):
+    """Interface that host programs implement to supply credentials to tools."""
+
+    def get(self, key: str, default: Any = ...) -> str:
+        """Get a credential value by key. Raise KeyError if not found and no default."""
+        ...
+
+    def keys(self) -> set[str]:
+        """Return all known credential keys (for discovery/enumeration)."""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton
+# ---------------------------------------------------------------------------
+
+_provider: CredentialProvider | None = None
+
+
+def init(provider: CredentialProvider) -> None:
+    """Inject the credential provider. Called once by the host program at startup.
 
     Args:
-        backend: "env" for dotenv format, "yaml" for YAML format.
-                 If a file path string ending in .yaml/.yml is passed,
-                 auto-detects as yaml. Otherwise treated as "env".
-        path: Path to the credentials file. If None, auto-discovers:
-              - env: looks for .env in cwd, then creates if needed
-              - yaml: looks for credentials.yaml in cwd
+        provider: Any object implementing CredentialProvider protocol.
     """
-    global _storage_path, _storage_format
-
-    # If backend is a path string (not "env"/"yaml"), infer format from extension
-    if backend not in ("env", "yaml"):
-        path = backend
-        backend = "yaml" if str(path).endswith((".yaml", ".yml")) else "env"
-
-    _storage_format = backend  # type: ignore[assignment]
-
-    if path:
-        _storage_path = Path(path)
-    else:
-        _storage_path = None  # will auto-discover on first use
-
-    # Load existing file if it exists
-    resolved = _resolve_path()
-    if resolved.is_file():
-        _load_from_file(resolved)
-
-
-def configure(backend: dict | _Backend | None) -> None:
-    """Set a custom programmatic credentials backend.
-
-    Args:
-        backend: dict of key-value pairs, callable(key, default) -> str, or None to clear.
-    """
-    global _custom
-    if backend is None:
-        _custom = None
-    elif isinstance(backend, dict):
-        store = {k.upper(): str(v) for k, v in backend.items()}
-        _custom = lambda key, default, _s=store: _s.get(key, default)
-    elif callable(backend):
-        _custom = backend
-    else:
-        raise TypeError(f"Expected dict, callable, or None — got {type(backend).__name__}")
+    global _provider
+    _provider = provider
 
 
 def reset() -> None:
-    """Clear all state. Falls back to env vars only."""
-    global _custom, _storage_path, _storage_format
-    _store.clear()
-    _custom = None
-    _storage_path = None
-    _storage_format = "env"
+    """Clear the provider. Falls back to env vars only. Useful for testing."""
+    global _provider
+    _provider = None
 
-
-# ---------------------------------------------------------------------------
-# Read
-# ---------------------------------------------------------------------------
 
 def get(key: str, default: Any = _MISSING) -> str:
     """Get a credential value.
 
-    Lookup order: file store → custom backend → env var.
+    Delegates to the injected provider if available, otherwise falls back
+    to environment variables.
 
     Args:
         key: Credential name (e.g. "JIRA_URL", "NOTION_TOKEN").
         default: Value to return if not found. If omitted, raises KeyError.
     """
+    if _provider is not None:
+        try:
+            return _provider.get(key)
+        except KeyError:
+            if default is not _MISSING:
+                return default
+            raise KeyError(f"Credential '{key}' not found and no default provided.")
+
+    # No provider — env var fallback
     ukey = key.upper()
-
-    # 1. File store (loaded from .env or .yaml)
-    if ukey in _store:
-        return _store[ukey]
-
-    # 2. Custom backend
-    if _custom is not None:
-        val = _custom(ukey, _MISSING)
-        if val is not _MISSING:
-            return val
-
-    # 3. Environment variable
-    env_val = os.environ.get(key) or os.environ.get(ukey)
-    if env_val is not None:
-        return env_val
-
+    val = os.environ.get(key) or os.environ.get(ukey)
+    if val is not None:
+        return val
     if default is not _MISSING:
         return default
-    raise KeyError(f"Credential '{key}' not found. Set via .env, credentials.yaml, env var, or configure().")
+    raise KeyError(f"Credential '{key}' not found and no provider configured.")
+
+
+def keys() -> set[str]:
+    """Return all known credential keys from the provider."""
+    if _provider is not None:
+        return _provider.keys()
+    return set()
 
 
 # ---------------------------------------------------------------------------
-# Write
+# Credential registry (populated by validate() calls)
+# ---------------------------------------------------------------------------
+
+_registry: dict[str, list[CredentialRequirement]] = {}
+
+
+def register(tool: str, requirements: list[CredentialRequirement]) -> None:
+    """Register credential requirements for a tool.
+
+    Called automatically by validate(), but can also be called directly
+    to register without validation (e.g. at module load time).
+    """
+    _registry[tool] = requirements
+
+
+def list_credentials(tool: str | None = None) -> dict[str, list[CredentialRequirement]] | list[CredentialRequirement]:
+    """Return credential requirements for onboarding/setup.
+
+    Args:
+        tool: If specified, return requirements for that tool only.
+              If None, return all registered tools.
+
+    Returns:
+        A list of CredentialRequirement if tool is specified,
+        or a dict mapping tool name → requirements for all tools.
+    """
+    if tool:
+        return _registry.get(tool, [])
+    return dict(_registry)
+
+
+# ---------------------------------------------------------------------------
+# Validation helper
+# ---------------------------------------------------------------------------
+
+def validate(tool: str, requirements: list[CredentialRequirement]) -> None:
+    """Validate that all required credentials are available.
+
+    Call this in build_tools() before returning tools.
+    Also registers the requirements so onboarding can discover them.
+
+    Args:
+        tool: Tool name for error messages.
+        requirements: List of credential requirements.
+
+    Raises:
+        MissingCredentialsError: If any required credential is missing.
+    """
+    _registry[tool] = requirements
+    missing = []
+    for req in requirements:
+        if not req.required:
+            continue
+        try:
+            val = get(req.key, "")
+            if not val:
+                missing.append(req)
+        except KeyError:
+            missing.append(req)
+    if missing:
+        raise MissingCredentialsError(tool, missing)
+
+
+# ---------------------------------------------------------------------------
+# Backward compatibility — set_credential (used by onboarding code)
 # ---------------------------------------------------------------------------
 
 def set_credential(key: str, value: str) -> None:
-    """Set a credential and persist to the configured storage file.
+    """Set a credential. Delegates to provider if it supports writing.
 
-    Also sets in os.environ so it's available immediately in the current process.
+    This is primarily used by onboarding/setup code in the host program.
+    Falls back to setting an environment variable.
     """
-    ukey = key.upper()
-    _store[ukey] = value
-    os.environ[ukey] = value
-
-    # Persist to file
-    target = _resolve_path()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if _storage_format == "yaml":
-        _write_yaml(target, ukey, value)
+    if _provider is not None and hasattr(_provider, "set"):
+        _provider.set(key, value)  # type: ignore[attr-defined]
     else:
-        _write_env(target, ukey, value)
-
-
-# ---------------------------------------------------------------------------
-# Compatibility — load_yaml / save_yaml (kept for existing callers)
-# ---------------------------------------------------------------------------
-
-def load_yaml(path: str | Path = "credentials.yaml") -> None:
-    """Load credentials from a YAML file. Switches storage to yaml mode."""
-    configure_storage("yaml", path=path)
-
-
-def save_yaml(path: str | Path | None = None) -> None:
-    """Save the current in-memory store to a YAML file."""
-    import yaml
-
-    target = Path(path) if path else _resolve_path()
-    target.parent.mkdir(parents=True, exist_ok=True)
-
-    existing: dict = {}
-    if target.exists():
-        existing = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
-
-    for k, v in _store.items():
-        existing[k] = v
-
-    target.write_text(yaml.dump(existing, default_flow_style=False), encoding="utf-8")
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _resolve_path() -> Path:
-    """Resolve the storage file path."""
-    if _storage_path:
-        return _storage_path
-    if _storage_format == "yaml":
-        return Path.cwd() / "credentials.yaml"
-    return Path.cwd() / ".env"
-
-
-def _load_from_file(path: Path) -> None:
-    """Load credentials from file into in-memory store."""
-    _store.clear()
-    suffix = path.suffix.lower()
-    if suffix in (".yaml", ".yml"):
-        _load_yaml_file(path)
-    else:
-        _load_env_file(path)
-
-
-def _load_env_file(path: Path) -> None:
-    """Parse a .env file into the store."""
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip().upper()
-        # Strip surrounding quotes
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-            value = value[1:-1]
-        _store[key] = value
-
-
-def _load_yaml_file(path: Path) -> None:
-    """Parse a YAML file into the store."""
-    import yaml
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    _store.update(_flatten_yaml(data))
-
-
-def _flatten_yaml(data: dict) -> dict[str, str]:
-    """Flatten nested YAML into ENV_VAR-style keys.
-
-    jira:
-      url: https://...       → JIRA_URL
-      api_token: sk-...      → JIRA_API_TOKEN
-
-    Flat keys are kept as-is:
-      NOTION_TOKEN: secret   → NOTION_TOKEN
-    """
-    flat: dict[str, str] = {}
-    for key, val in data.items():
-        if isinstance(val, dict):
-            for child_key, child_val in val.items():
-                env_key = f"{key}_{child_key}".upper()
-                flat[env_key] = str(child_val)
-        else:
-            flat[key.upper()] = str(val)
-    return flat
-
-
-def _write_env(path: Path, key: str, value: str) -> None:
-    """Write or update a key in a .env file."""
-    lines: list[str] = []
-    found = False
-
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#") and "=" in stripped:
-                line_key = stripped.partition("=")[0].strip().upper()
-                if line_key == key:
-                    # Quote value if it contains spaces or special chars
-                    lines.append(f"{key}={_quote_env_value(value)}")
-                    found = True
-                    continue
-            lines.append(line)
-
-    if not found:
-        lines.append(f"{key}={_quote_env_value(value)}")
-
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def _quote_env_value(value: str) -> str:
-    """Quote a value for .env if it contains spaces or special characters."""
-    if not value:
-        return '""'
-    needs_quote = any(c in value for c in (" ", "#", "'", '"', "\n", "\t", "="))
-    if needs_quote:
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{escaped}"'
-    return value
-
-
-def _write_yaml(path: Path, key: str, value: str) -> None:
-    """Write or update a key in a YAML file."""
-    import yaml
-
-    existing: dict = {}
-    if path.exists():
-        existing = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-
-    existing[key] = value
-    path.write_text(yaml.dump(existing, default_flow_style=False), encoding="utf-8")
+        os.environ[key.upper()] = value

@@ -36,6 +36,7 @@ class MCPClient:
         self.headers = headers or {}
         self.timeout = timeout
         self._request_id = 0
+        self._session_id: str | None = None
 
     def _next_id(self) -> int:
         self._request_id += 1
@@ -63,21 +64,26 @@ class MCPClient:
         if params:
             payload["params"] = params
 
+        req_headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            **self.headers,
+        }
+        if self._session_id:
+            req_headers["Mcp-Session-Id"] = self._session_id
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                self.url,
-                json=payload,
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json, text/event-stream",
-                    **self.headers,
-                },
-            )
+            resp = await client.post(self.url, json=payload, headers=req_headers)
 
         if resp.status_code != 200:
             raise MCPClientError(
                 f"MCP server returned {resp.status_code}: {resp.text[:500]}"
             )
+
+        # Capture session ID from response
+        session_id = resp.headers.get("mcp-session-id")
+        if session_id:
+            self._session_id = session_id
 
         content_type = resp.headers.get("content-type", "")
         if "text/event-stream" in content_type:

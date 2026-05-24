@@ -6,15 +6,22 @@ import logging
 from typing import Any
 
 from talon_tools import Tool, ToolResult
+from talon_tools.credentials import CredentialRequirement, validate
 
 from .client import XClient
 from .parser import parse_timeline, parse_tweet_detail, format_tweets
 
 log = logging.getLogger(__name__)
 
+CREDENTIALS = [
+    CredentialRequirement("X_AUTH_TOKEN", "X/Twitter auth_token cookie"),
+    CredentialRequirement("X_CT0", "X/Twitter ct0 cookie (CSRF token)"),
+]
+
 
 def build_tools() -> list[Tool]:
     """Return X/Twitter tools for agent use."""
+    validate("x", CREDENTIALS)
 
     _client: XClient | None = None
 

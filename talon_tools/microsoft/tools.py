@@ -14,16 +14,26 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from functools import partial
 from typing import Any
 
 from talon_tools import Tool, ToolResult
+from talon_tools.credentials import CredentialRequirement, validate
 from . import outlook, calendar, teams
+
+CREDENTIALS = [
+    CredentialRequirement("MS_TOKEN_FILE", "Path to Microsoft Graph OAuth token file"),
+    CredentialRequirement("MS_CLIENT_ID", "Azure AD app client ID", required=False),
+    CredentialRequirement("MS_TENANT_ID", "Azure AD tenant ID", required=False),
+]
 
 
 async def _run(fn, **kwargs):
+    """Run a sync function in a thread pool, preserving contextvars."""
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, partial(fn, **kwargs))
+    ctx = contextvars.copy_context()
+    return await loop.run_in_executor(None, partial(ctx.run, fn, **kwargs))
 
 
 def _tool(name: str, description: str, parameters: dict, fn) -> Tool:
@@ -140,4 +150,5 @@ def outlook_tools() -> list[Tool]:
 
 
 def build_tools() -> list[Tool]:
+    validate("microsoft", CREDENTIALS)
     return mail_tools() + calendar_tools() + teams_tools()
