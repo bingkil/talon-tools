@@ -8,10 +8,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 from talon_tools import Tool, ToolResult
+from talon_tools.credentials import CredentialRequirement, validate
 
 from .client import JenkinsClient, available_servers
 
 log = logging.getLogger(__name__)
+
+CREDENTIALS = [
+    CredentialRequirement("JENKINS_URL", "Jenkins server URL"),
+    CredentialRequirement("JENKINS_USERNAME", "Jenkins username"),
+    CredentialRequirement("JENKINS_TOKEN", "Jenkins API token", hint="Generate at <your-jenkins>/user/<you>/configure → API Token"),
+]
 
 
 def _ts_to_str(ms: int | None) -> str:
@@ -108,6 +115,7 @@ def _format_build_detail(build: dict, job_name: str) -> str:
 
 def build_tools() -> list[Tool]:
     """Return Jenkins tools for agent use."""
+    validate("jenkins", CREDENTIALS)
 
     _clients: dict[str, JenkinsClient] = {}
 

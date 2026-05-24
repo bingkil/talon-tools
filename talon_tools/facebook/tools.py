@@ -6,15 +6,22 @@ import logging
 from typing import Any
 
 from talon_tools import Tool, ToolResult
+from talon_tools.credentials import CredentialRequirement, validate
 
 from .client import FBClient
 from .parser import format_posts
 
 log = logging.getLogger(__name__)
 
+CREDENTIALS = [
+    CredentialRequirement("FB_C_USER", "Facebook c_user cookie"),
+    CredentialRequirement("FB_XS", "Facebook xs cookie"),
+]
+
 
 def build_tools() -> list[Tool]:
     """Return Facebook tools for agent use."""
+    validate("facebook", CREDENTIALS)
 
     _client: FBClient | None = None
 

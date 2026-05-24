@@ -13,9 +13,15 @@ import logging
 import aiohttp
 
 from talon_tools import Tool, ToolResult
-from talon_tools.credentials import get as cred
+from talon_tools.credentials import get as cred, CredentialRequirement, validate
 
 log = logging.getLogger(__name__)
+
+CREDENTIALS = [
+    CredentialRequirement("SERVICENOW_URL", "ServiceNow instance URL (e.g. https://company.service-now.com)"),
+    CredentialRequirement("SERVICENOW_USERNAME", "ServiceNow username"),
+    CredentialRequirement("SERVICENOW_PASSWORD", "ServiceNow password"),
+]
 
 
 def _dv(record: dict, key: str) -> str:
@@ -26,10 +32,10 @@ def _dv(record: dict, key: str) -> str:
     return str(val) if val else ""
 
 
-async def _query(table: str, query: str, limit: int = 20) -> list[dict]:
-    url = cred("SERVICENOW_URL")
-    user = cred("SERVICENOW_USERNAME")
-    passwd = cred("SERVICENOW_PASSWORD")
+async def _query(table: str, query: str, limit: int = 20, *, url: str = "", user: str = "", passwd: str = "") -> list[dict]:
+    url = url or cred("SERVICENOW_URL")
+    user = user or cred("SERVICENOW_USERNAME")
+    passwd = passwd or cred("SERVICENOW_PASSWORD")
     auth = base64.b64encode(f"{user}:{passwd}".encode()).decode()
     headers = {"Authorization": f"Basic {auth}", "Accept": "application/json"}
     params = {
@@ -97,6 +103,64 @@ async def _my_change_requests(args: dict) -> ToolResult:
 
 
 def build_tools() -> list[Tool]:
+    validate("servicenow", CREDENTIALS)
+
+    # Capture credentials eagerly while agent context is guaranteed set
+    _url = cred("SERVICENOW_URL")
+    _user = cred("SERVICENOW_USERNAME")
+    _passwd = cred("SERVICENOW_PASSWORD")
+
+    async def my_cases_handler(args: dict) -> ToolResult:
+        status = (args.get("status") or "open").lower()
+        limit = int(args.get("limit") or 20)
+
+        parts = [f"opened_by.user_name={_user}"]
+        if status == "open":
+            parts.append("stateNOT IN6,7,8,3")
+        elif status == "closed":
+            parts.append("stateIN6,7,8,3")
+        parts.append("ORDERBYDESCsys_created_on")
+
+        records = await _query("sn_customerservice_case", "^".join(parts), limit, url=_url, user=_user, passwd=_passwd)
+        cases = [
+            {
+                "number": r.get("number", ""),
+                "state": _dv(r, "state"),
+                "short_description": r.get("short_description", ""),
+                "priority": _dv(r, "priority"),
+                "opened_at": r.get("opened_at", ""),
+            }
+            for r in records
+        ]
+        return ToolResult(json.dumps({"count": len(cases), "cases": cases}))
+
+    async def my_change_requests_handler(args: dict) -> ToolResult:
+        status = (args.get("status") or "open").lower()
+        limit = int(args.get("limit") or 20)
+
+        parts = [f"requested_by.user_name={_user}"]
+        if status == "open":
+            parts.append("stateNOT IN3,4,7")
+        elif status == "closed":
+            parts.append("stateIN3,4,7")
+        parts.append("ORDERBYDESCsys_created_on")
+
+        records = await _query("change_request", "^".join(parts), limit, url=_url, user=_user, passwd=_passwd)
+        crs = [
+            {
+                "number": r.get("number", ""),
+                "state": _dv(r, "state"),
+                "short_description": r.get("short_description", ""),
+                "priority": _dv(r, "priority"),
+                "risk": _dv(r, "risk"),
+                "assigned_to": _dv(r, "assigned_to"),
+                "start_date": r.get("start_date", ""),
+                "end_date": r.get("end_date", ""),
+            }
+            for r in records
+        ]
+        return ToolResult(json.dumps({"count": len(crs), "change_requests": crs}))
+
     return [
         Tool(
             name="my_cases",
@@ -108,7 +172,7 @@ def build_tools() -> list[Tool]:
                     "limit": {"type": "integer", "description": "Max results (default 20)"},
                 },
             },
-            handler=_my_cases,
+            handler=my_cases_handler,
         ),
         Tool(
             name="my_change_requests",
@@ -120,14 +184,111 @@ def build_tools() -> list[Tool]:
                     "limit": {"type": "integer", "description": "Max results (default 20)"},
                 },
             },
-            handler=_my_change_requests,
+            handler=my_change_requests_handler,
+        ),
+        # Extended tools — broader read-only access
+        Tool(
+            name="servicenow_incidents",
+            description="List ServiceNow incidents. Filter by query, state, priority, or assignee.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search in short description."},
+                    "state": {"type": "string", "description": "State filter (e.g. 1=New, 2=In Progress, 6=Resolved, 7=Closed)."},
+                    "priority": {"type": "string", "description": "Priority filter (1=Critical, 2=High, 3=Moderate, 4=Low)."},
+                    "assigned_to": {"type": "string", "description": "Username of assignee."},
+                    "limit": {"type": "integer", "description": "Max results (default 20)."},
+                },
+            },
+            handler=_list_incidents,
+        ),
+        Tool(
+            name="servicenow_incident",
+            description="Get detailed information about a specific ServiceNow incident by number (e.g. INC0012345).",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "number": {"type": "string", "description": "Incident number (e.g. INC0012345)."},
+                },
+                "required": ["number"],
+            },
+            handler=_get_incident,
+        ),
+        Tool(
+            name="servicenow_change_details",
+            description="Get detailed information about a change request including associated tasks.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "number": {"type": "string", "description": "Change request number (e.g. CHG0012345)."},
+                },
+                "required": ["number"],
+            },
+            handler=_get_change_details,
+        ),
+        Tool(
+            name="servicenow_knowledge",
+            description="Search ServiceNow Knowledge Base articles.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search text (searches title and body)."},
+                    "limit": {"type": "integer", "description": "Max results (default 10)."},
+                },
+                "required": ["query"],
+            },
+            handler=_search_knowledge,
+        ),
+        Tool(
+            name="servicenow_article",
+            description="Get full content of a ServiceNow Knowledge Base article by number.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "number": {"type": "string", "description": "Article number (e.g. KB0012345)."},
+                },
+                "required": ["number"],
+            },
+            handler=_get_article,
+        ),
+        Tool(
+            name="servicenow_catalog",
+            description="Browse ServiceNow Service Catalog items. Optionally filter by category.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "category": {"type": "string", "description": "Category filter (partial match)."},
+                    "limit": {"type": "integer", "description": "Max results (default 20)."},
+                },
+            },
+            handler=_list_catalog_items,
+        ),
+        Tool(
+            name="servicenow_users",
+            description="Search ServiceNow users by name, username, or email.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search text (name, username, or email)."},
+                    "limit": {"type": "integer", "description": "Max results (default 20)."},
+                },
+            },
+            handler=_list_users,
+        ),
+        Tool(
+            name="servicenow_stories",
+            description="List agile user stories from ServiceNow. Filter by sprint or state.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "sprint": {"type": "string", "description": "Sprint name filter (partial match)."},
+                    "state": {"type": "string", "description": "State filter."},
+                    "limit": {"type": "integer", "description": "Max results (default 20)."},
+                },
+            },
+            handler=_list_stories,
         ),
     ]
-
-
-# ===========================================================================
-# Extended ServiceNow tools — broader read-only access
-# ===========================================================================
 
 
 async def _list_incidents(args: dict) -> ToolResult:
@@ -345,108 +506,4 @@ async def _list_stories(args: dict) -> ToolResult:
     return ToolResult(json.dumps({"count": len(stories), "stories": stories}))
 
 
-def build_extended_tools() -> list[Tool]:
-    """Return extended ServiceNow tools (broader read-only access)."""
-    return [
-        Tool(
-            name="servicenow_incidents",
-            description="List ServiceNow incidents. Filter by query, state, priority, or assignee.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search in short description."},
-                    "state": {"type": "string", "description": "State filter (e.g. 1=New, 2=In Progress, 6=Resolved, 7=Closed)."},
-                    "priority": {"type": "string", "description": "Priority filter (1=Critical, 2=High, 3=Moderate, 4=Low)."},
-                    "assigned_to": {"type": "string", "description": "Username of assignee."},
-                    "limit": {"type": "integer", "description": "Max results (default 20)."},
-                },
-            },
-            handler=_list_incidents,
-        ),
-        Tool(
-            name="servicenow_incident",
-            description="Get detailed information about a specific ServiceNow incident by number (e.g. INC0012345).",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "number": {"type": "string", "description": "Incident number (e.g. INC0012345)."},
-                },
-                "required": ["number"],
-            },
-            handler=_get_incident,
-        ),
-        Tool(
-            name="servicenow_change_details",
-            description="Get detailed information about a change request including associated tasks.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "number": {"type": "string", "description": "Change request number (e.g. CHG0012345)."},
-                },
-                "required": ["number"],
-            },
-            handler=_get_change_details,
-        ),
-        Tool(
-            name="servicenow_knowledge",
-            description="Search ServiceNow Knowledge Base articles.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search text (searches title and body)."},
-                    "limit": {"type": "integer", "description": "Max results (default 10)."},
-                },
-                "required": ["query"],
-            },
-            handler=_search_knowledge,
-        ),
-        Tool(
-            name="servicenow_article",
-            description="Get full content of a ServiceNow Knowledge Base article by number.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "number": {"type": "string", "description": "Article number (e.g. KB0012345)."},
-                },
-                "required": ["number"],
-            },
-            handler=_get_article,
-        ),
-        Tool(
-            name="servicenow_catalog",
-            description="Browse ServiceNow Service Catalog items. Optionally filter by category.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "category": {"type": "string", "description": "Category filter (partial match)."},
-                    "limit": {"type": "integer", "description": "Max results (default 20)."},
-                },
-            },
-            handler=_list_catalog_items,
-        ),
-        Tool(
-            name="servicenow_users",
-            description="Search ServiceNow users by name, username, or email.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search text (name, username, or email)."},
-                    "limit": {"type": "integer", "description": "Max results (default 20)."},
-                },
-            },
-            handler=_list_users,
-        ),
-        Tool(
-            name="servicenow_stories",
-            description="List agile user stories from ServiceNow. Filter by sprint or state.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "sprint": {"type": "string", "description": "Sprint name filter (partial match)."},
-                    "state": {"type": "string", "description": "State filter."},
-                    "limit": {"type": "integer", "description": "Max results (default 20)."},
-                },
-            },
-            handler=_list_stories,
-        ),
-    ]
+

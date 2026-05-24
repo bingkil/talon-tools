@@ -23,3 +23,6 @@ talon_tools/onboarding/youtube.py
 **/spotify_token.json
 **/spotify_token.enc
 **/.encryption_key
+
+# Implementation docs (built in separate commits)
+docs/mcp-server.md

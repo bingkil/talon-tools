@@ -15,11 +15,11 @@ log = logging.getLogger(__name__)
 class JiraClient:
     """Thin async wrapper around the sync Jira client."""
 
-    def __init__(self) -> None:
-        url = cred("JIRA_URL")
-        username = cred("JIRA_USERNAME")
-        token = cred("JIRA_API_TOKEN")
-        self._jira = Jira(url=url, username=username, password=token, cloud=True)
+    def __init__(self, url: str = "", username: str = "", token: str = "") -> None:
+        self._url = url or cred("JIRA_URL")
+        self._username = username or cred("JIRA_USERNAME")
+        self._token = token or cred("JIRA_API_TOKEN")
+        self._jira = Jira(url=self._url, username=self._username, password=self._token, cloud=True)
 
     async def search(self, jql: str, limit: int = 20) -> dict:
         return await asyncio.to_thread(
@@ -63,11 +63,11 @@ class JiraClient:
 class ConfluenceClient:
     """Thin async wrapper around the sync Confluence client."""
 
-    def __init__(self) -> None:
-        url = cred("JIRA_URL")  # same Atlassian Cloud instance
-        username = cred("JIRA_USERNAME")
-        token = cred("JIRA_API_TOKEN")
-        self._confluence = Confluence(url=url, username=username, password=token, cloud=True)
+    def __init__(self, url: str = "", username: str = "", token: str = "") -> None:
+        self._url = url or cred("JIRA_URL")
+        self._username = username or cred("JIRA_USERNAME")
+        self._token = token or cred("JIRA_API_TOKEN")
+        self._confluence = Confluence(url=self._url, username=self._username, password=self._token, cloud=True)
 
     async def search(self, cql: str, limit: int = 20) -> dict:
         return await asyncio.to_thread(self._confluence.cql, cql, limit=limit)

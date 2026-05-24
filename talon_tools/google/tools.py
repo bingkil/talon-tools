@@ -13,13 +13,18 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from functools import partial
 from typing import Any
 
 from talon_tools import Tool, ToolResult
+from talon_tools.credentials import CredentialRequirement, validate
 from . import gmail, calendar, docs, contacts, photos, tasks, keep, sheets, drive, youtube, maps
 from .maps import GOOGLE_MAPS_API_KEY
 
+CREDENTIALS = [
+    CredentialRequirement("GOOGLE_CREDENTIALS_FILE", "Path to Google OAuth credentials JSON", hint="https://console.cloud.google.com/apis/credentials"),
+]
 
 REQUIRED_CREDENTIALS = {
     GOOGLE_MAPS_API_KEY: "https://console.cloud.google.com/apis/credentials",
@@ -32,9 +37,10 @@ def required_credentials() -> dict[str, str]:
 
 
 async def _run(fn, **kwargs):
-    """Run a sync function in a thread pool."""
+    """Run a sync function in a thread pool, preserving contextvars."""
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, partial(fn, **kwargs))
+    ctx = contextvars.copy_context()
+    return await loop.run_in_executor(None, partial(ctx.run, fn, **kwargs))
 
 
 def _tool(name: str, description: str, parameters: dict, fn, requires_credentials: list[str] | None = None) -> Tool:
@@ -749,6 +755,7 @@ def build_tools(token_file=None, **_kwargs) -> list[Tool]:
         token_file: Path to a specific Google OAuth token.json.
                     If None, uses the global default token.
     """
+    validate("google", CREDENTIALS)
     return (
         gmail_tools(token_file) +
         calendar_tools(token_file) +

@@ -54,14 +54,14 @@ def available_servers() -> list[str]:
     Always includes ``"default"`` if the bare ``JENKINS_URL`` is set.
     """
     import os
-    from talon_tools.credentials import _store as cred_store
+    from talon_tools.credentials import keys as cred_keys
 
     servers: list[str] = []
     if cred("JENKINS_URL", ""):
         servers.append("default")
 
     # Merge keys from file store + env vars
-    all_keys = set(k.upper() for k in cred_store)
+    all_keys = set(k.upper() for k in cred_keys())
     all_keys.update(k.upper() for k in os.environ)
 
     for key in sorted(all_keys):

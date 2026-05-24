@@ -7,10 +7,17 @@ import logging
 from typing import Any
 
 from talon_tools import Tool, ToolResult
+from talon_tools.credentials import CredentialRequirement, validate, get as cred
 
 from .client import JiraClient, ConfluenceClient
 
 log = logging.getLogger(__name__)
+
+CREDENTIALS = [
+    CredentialRequirement("JIRA_URL", "Jira instance URL (e.g. https://company.atlassian.net)"),
+    CredentialRequirement("JIRA_USERNAME", "Jira username or email address"),
+    CredentialRequirement("JIRA_API_TOKEN", "Jira API token", hint="https://id.atlassian.com/manage-profile/security/api-tokens"),
+]
 
 
 def _format_issue_summary(issue: dict) -> str:
@@ -74,15 +81,28 @@ def _format_issue_detail(issue: dict) -> str:
 
 
 def build_tools() -> list[Tool]:
-    """Return Jira tools for agent use."""
+    """Return Jira and Confluence tools for agent use."""
+    validate("atlassian", CREDENTIALS)
 
-    _client: JiraClient | None = None
+    # Capture credentials eagerly while agent context is guaranteed set
+    _url = cred("JIRA_URL")
+    _username = cred("JIRA_USERNAME")
+    _token = cred("JIRA_API_TOKEN")
 
-    def _get_client() -> JiraClient:
-        nonlocal _client
-        if _client is None:
-            _client = JiraClient()
-        return _client
+    _jira_client: JiraClient | None = None
+    _confluence_client: ConfluenceClient | None = None
+
+    def _get_jira() -> JiraClient:
+        nonlocal _jira_client
+        if _jira_client is None:
+            _jira_client = JiraClient(url=_url, username=_username, token=_token)
+        return _jira_client
+
+    def _get_confluence() -> ConfluenceClient:
+        nonlocal _confluence_client
+        if _confluence_client is None:
+            _confluence_client = ConfluenceClient(url=_url, username=_username, token=_token)
+        return _confluence_client
 
     async def search_handler(args: dict[str, Any]) -> ToolResult:
         jql = args.get("jql", "")
@@ -90,7 +110,7 @@ def build_tools() -> list[Tool]:
             return ToolResult(content="Error: jql is required", is_error=True)
         limit = args.get("limit", 20)
         try:
-            result = await _get_client().search(jql, limit=limit)
+            result = await _get_jira().search(jql, limit=limit)
             issues = result.get("issues", [])
             if not issues:
                 return ToolResult(content="No issues found.")
@@ -108,7 +128,7 @@ def build_tools() -> list[Tool]:
         if not key:
             return ToolResult(content="Error: issue_key is required", is_error=True)
         try:
-            issue = await _get_client().get_issue(key)
+            issue = await _get_jira().get_issue(key)
             return ToolResult(content=_format_issue_detail(issue))
         except Exception as e:
             log.exception("jira_get_issue failed")
@@ -122,7 +142,7 @@ def build_tools() -> list[Tool]:
         issue_type = args.get("issue_type", "Task")
         description = args.get("description", "")
         try:
-            result = await _get_client().create_issue(project, summary, issue_type, description)
+            result = await _get_jira().create_issue(project, summary, issue_type, description)
             key = result.get("key", "")
             return ToolResult(content=f"Created: {key}")
         except Exception as e:
@@ -146,7 +166,7 @@ def build_tools() -> list[Tool]:
         if not fields:
             return ToolResult(content="Error: no fields to update", is_error=True)
         try:
-            await _get_client().update_fields(key, fields)
+            await _get_jira().update_fields(key, fields)
             return ToolResult(content=f"Updated {key}")
         except Exception as e:
             log.exception("jira_update_issue failed")
@@ -158,7 +178,7 @@ def build_tools() -> list[Tool]:
         if not key or not status:
             return ToolResult(content="Error: issue_key and status are required", is_error=True)
         try:
-            await _get_client().transition(key, status)
+            await _get_jira().transition(key, status)
             return ToolResult(content=f"Transitioned {key} to {status}")
         except Exception as e:
             log.exception("jira_transition failed")
@@ -170,7 +190,7 @@ def build_tools() -> list[Tool]:
         if not key or not comment:
             return ToolResult(content="Error: issue_key and comment are required", is_error=True)
         try:
-            await _get_client().add_comment(key, comment)
+            await _get_jira().add_comment(key, comment)
             return ToolResult(content=f"Comment added to {key}")
         except Exception as e:
             log.exception("jira_add_comment failed")
@@ -182,13 +202,13 @@ def build_tools() -> list[Tool]:
         if not key or not account_id:
             return ToolResult(content="Error: issue_key and account_id are required", is_error=True)
         try:
-            await _get_client().assign(key, account_id)
+            await _get_jira().assign(key, account_id)
             return ToolResult(content=f"Assigned {key} to {account_id}")
         except Exception as e:
             log.exception("jira_assign failed")
             return ToolResult(content=f"Error: {e}", is_error=True)
 
-    return [
+    jira_tools = [
         Tool(
             name="jira_search",
             description=(
@@ -300,6 +320,169 @@ def build_tools() -> list[Tool]:
         ),
     ]
 
+    # --- Confluence handlers ---
+
+    async def conf_search_handler(args: dict[str, Any]) -> ToolResult:
+        cql = args.get("cql", "")
+        if not cql:
+            return ToolResult(content="Error: cql is required", is_error=True)
+        limit = args.get("limit", 20)
+        try:
+            result = await _get_confluence().search(cql, limit=limit)
+            results = result.get("results", []) if isinstance(result, dict) else []
+            if not results:
+                return ToolResult(content="No results found.")
+            total = result.get("totalSize", len(results))
+            lines = [f"Found {total} result(s), showing {len(results)}:\n"]
+            for r in results:
+                lines.append(f"- {_format_confluence_result(r)}")
+            return ToolResult(content="\n".join(lines))
+        except Exception as e:
+            log.exception("confluence_search failed")
+            return ToolResult(content=f"Error: {e}", is_error=True)
+
+    async def conf_get_page_handler(args: dict[str, Any]) -> ToolResult:
+        page_id = args.get("page_id", "")
+        space = args.get("space", "")
+        title = args.get("title", "")
+        if not page_id and not (space and title):
+            return ToolResult(content="Error: provide page_id, or both space and title", is_error=True)
+        try:
+            if page_id:
+                page = await _get_confluence().get_page_by_id(page_id)
+            else:
+                page = await _get_confluence().get_page_by_title(space, title)
+            if not page:
+                return ToolResult(content="Page not found.")
+            return ToolResult(content=_format_confluence_page(page))
+        except Exception as e:
+            log.exception("confluence_get_page failed")
+            return ToolResult(content=f"Error: {e}", is_error=True)
+
+    async def conf_create_page_handler(args: dict[str, Any]) -> ToolResult:
+        space = args.get("space", "")
+        title = args.get("title", "")
+        body = args.get("body", "")
+        if not space or not title:
+            return ToolResult(content="Error: space and title are required", is_error=True)
+        parent_id = args.get("parent_id")
+        try:
+            result = await _get_confluence().create_page(space, title, body, parent_id=parent_id)
+            pid = result.get("id", "")
+            return ToolResult(content=f"Created page: {title} (id: {pid})")
+        except Exception as e:
+            log.exception("confluence_create_page failed")
+            return ToolResult(content=f"Error: {e}", is_error=True)
+
+    async def conf_update_page_handler(args: dict[str, Any]) -> ToolResult:
+        page_id = args.get("page_id", "")
+        title = args.get("title", "")
+        body = args.get("body", "")
+        if not page_id or not title:
+            return ToolResult(content="Error: page_id and title are required", is_error=True)
+        try:
+            await _get_confluence().update_page(page_id, title, body)
+            return ToolResult(content=f"Updated page: {title} (id: {page_id})")
+        except Exception as e:
+            log.exception("confluence_update_page failed")
+            return ToolResult(content=f"Error: {e}", is_error=True)
+
+    async def conf_get_spaces_handler(args: dict[str, Any]) -> ToolResult:
+        limit = args.get("limit", 50)
+        try:
+            spaces = await _get_confluence().get_all_spaces(limit=limit)
+            if not spaces:
+                return ToolResult(content="No spaces found.")
+            lines = [f"Found {len(spaces)} space(s):\n"]
+            for s in spaces:
+                key = s.get("key", "")
+                name = s.get("name", "")
+                stype = s.get("type", "")
+                lines.append(f"- **{key}** — {name} [{stype}]")
+            return ToolResult(content="\n".join(lines))
+        except Exception as e:
+            log.exception("confluence_get_spaces failed")
+            return ToolResult(content=f"Error: {e}", is_error=True)
+
+
+    confluence_tools = [
+        Tool(
+            name="confluence_search",
+            description=(
+                "Search Confluence using CQL (Confluence Query Language). "
+                "Examples: 'type = page AND space = PROJ AND text ~ \"deployment\"', "
+                "'title = \"Meeting Notes\"', 'label = \"architecture\"'."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "cql": {"type": "string", "description": "CQL query string."},
+                    "limit": {"type": "integer", "description": "Max results (default 20)."},
+                },
+                "required": ["cql"],
+            },
+            handler=conf_search_handler,
+        ),
+        Tool(
+            name="confluence_get_page",
+            description=(
+                "Get a Confluence page by ID, or by space key + title. "
+                "Returns title, space, version, and full body content."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "page_id": {"type": "string", "description": "Page ID (numeric or UUID)."},
+                    "space": {"type": "string", "description": "Space key (e.g. PROJ). Used with title."},
+                    "title": {"type": "string", "description": "Page title. Used with space."},
+                },
+            },
+            handler=conf_get_page_handler,
+        ),
+        Tool(
+            name="confluence_create_page",
+            description="Create a new Confluence page in a space.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "space": {"type": "string", "description": "Space key (e.g. PROJ)."},
+                    "title": {"type": "string", "description": "Page title."},
+                    "body": {"type": "string", "description": "Page body in Confluence storage format (XHTML)."},
+                    "parent_id": {"type": "string", "description": "Optional parent page ID."},
+                },
+                "required": ["space", "title"],
+            },
+            handler=conf_create_page_handler,
+        ),
+        Tool(
+            name="confluence_update_page",
+            description="Update an existing Confluence page's title and body.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "page_id": {"type": "string", "description": "Page ID to update."},
+                    "title": {"type": "string", "description": "New page title."},
+                    "body": {"type": "string", "description": "New page body in storage format (XHTML)."},
+                },
+                "required": ["page_id", "title"],
+            },
+            handler=conf_update_page_handler,
+        ),
+        Tool(
+            name="confluence_get_spaces",
+            description="List available Confluence spaces.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Max spaces to return (default 50)."},
+                },
+            },
+            handler=conf_get_spaces_handler,
+        ),
+    ]
+
+    return jira_tools + confluence_tools
+
 
 def _format_confluence_result(result: dict) -> str:
     """Format a single CQL search result."""
@@ -343,171 +526,3 @@ def _format_confluence_page(page: dict) -> str:
     return "\n".join(lines)
 
 
-def build_confluence_tools() -> list[Tool]:
-    """Return Confluence tools for agent use."""
-
-    _client: ConfluenceClient | None = None
-
-    def _get_client() -> ConfluenceClient:
-        nonlocal _client
-        if _client is None:
-            _client = ConfluenceClient()
-        return _client
-
-    async def search_handler(args: dict[str, Any]) -> ToolResult:
-        cql = args.get("cql", "")
-        if not cql:
-            return ToolResult(content="Error: cql is required", is_error=True)
-        limit = args.get("limit", 20)
-        try:
-            result = await _get_client().search(cql, limit=limit)
-            results = result.get("results", []) if isinstance(result, dict) else []
-            if not results:
-                return ToolResult(content="No results found.")
-            total = result.get("totalSize", len(results))
-            lines = [f"Found {total} result(s), showing {len(results)}:\n"]
-            for r in results:
-                lines.append(f"- {_format_confluence_result(r)}")
-            return ToolResult(content="\n".join(lines))
-        except Exception as e:
-            log.exception("confluence_search failed")
-            return ToolResult(content=f"Error: {e}", is_error=True)
-
-    async def get_page_handler(args: dict[str, Any]) -> ToolResult:
-        page_id = args.get("page_id", "")
-        space = args.get("space", "")
-        title = args.get("title", "")
-        if not page_id and not (space and title):
-            return ToolResult(content="Error: provide page_id, or both space and title", is_error=True)
-        try:
-            if page_id:
-                page = await _get_client().get_page_by_id(page_id)
-            else:
-                page = await _get_client().get_page_by_title(space, title)
-            if not page:
-                return ToolResult(content="Page not found.")
-            return ToolResult(content=_format_confluence_page(page))
-        except Exception as e:
-            log.exception("confluence_get_page failed")
-            return ToolResult(content=f"Error: {e}", is_error=True)
-
-    async def create_page_handler(args: dict[str, Any]) -> ToolResult:
-        space = args.get("space", "")
-        title = args.get("title", "")
-        body = args.get("body", "")
-        if not space or not title:
-            return ToolResult(content="Error: space and title are required", is_error=True)
-        parent_id = args.get("parent_id")
-        try:
-            result = await _get_client().create_page(space, title, body, parent_id=parent_id)
-            pid = result.get("id", "")
-            return ToolResult(content=f"Created page: {title} (id: {pid})")
-        except Exception as e:
-            log.exception("confluence_create_page failed")
-            return ToolResult(content=f"Error: {e}", is_error=True)
-
-    async def update_page_handler(args: dict[str, Any]) -> ToolResult:
-        page_id = args.get("page_id", "")
-        title = args.get("title", "")
-        body = args.get("body", "")
-        if not page_id or not title:
-            return ToolResult(content="Error: page_id and title are required", is_error=True)
-        try:
-            await _get_client().update_page(page_id, title, body)
-            return ToolResult(content=f"Updated page: {title} (id: {page_id})")
-        except Exception as e:
-            log.exception("confluence_update_page failed")
-            return ToolResult(content=f"Error: {e}", is_error=True)
-
-    async def get_spaces_handler(args: dict[str, Any]) -> ToolResult:
-        limit = args.get("limit", 50)
-        try:
-            spaces = await _get_client().get_all_spaces(limit=limit)
-            if not spaces:
-                return ToolResult(content="No spaces found.")
-            lines = [f"Found {len(spaces)} space(s):\n"]
-            for s in spaces:
-                key = s.get("key", "")
-                name = s.get("name", "")
-                stype = s.get("type", "")
-                lines.append(f"- **{key}** — {name} [{stype}]")
-            return ToolResult(content="\n".join(lines))
-        except Exception as e:
-            log.exception("confluence_get_spaces failed")
-            return ToolResult(content=f"Error: {e}", is_error=True)
-
-    return [
-        Tool(
-            name="confluence_search",
-            description=(
-                "Search Confluence using CQL (Confluence Query Language). "
-                "Examples: 'type = page AND space = PROJ AND text ~ \"deployment\"', "
-                "'title = \"Meeting Notes\"', 'label = \"architecture\"'."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "cql": {"type": "string", "description": "CQL query string."},
-                    "limit": {"type": "integer", "description": "Max results (default 20)."},
-                },
-                "required": ["cql"],
-            },
-            handler=search_handler,
-        ),
-        Tool(
-            name="confluence_get_page",
-            description=(
-                "Get a Confluence page by ID, or by space key + title. "
-                "Returns title, space, version, and full body content."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "page_id": {"type": "string", "description": "Page ID (numeric or UUID)."},
-                    "space": {"type": "string", "description": "Space key (e.g. PROJ). Used with title."},
-                    "title": {"type": "string", "description": "Page title. Used with space."},
-                },
-            },
-            handler=get_page_handler,
-        ),
-        Tool(
-            name="confluence_create_page",
-            description="Create a new Confluence page in a space.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "space": {"type": "string", "description": "Space key (e.g. PROJ)."},
-                    "title": {"type": "string", "description": "Page title."},
-                    "body": {"type": "string", "description": "Page body in Confluence storage format (XHTML)."},
-                    "parent_id": {"type": "string", "description": "Optional parent page ID."},
-                },
-                "required": ["space", "title"],
-            },
-            handler=create_page_handler,
-        ),
-        Tool(
-            name="confluence_update_page",
-            description="Update an existing Confluence page's title and body.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "page_id": {"type": "string", "description": "Page ID to update."},
-                    "title": {"type": "string", "description": "New page title."},
-                    "body": {"type": "string", "description": "New page body in storage format (XHTML)."},
-                },
-                "required": ["page_id", "title"],
-            },
-            handler=update_page_handler,
-        ),
-        Tool(
-            name="confluence_get_spaces",
-            description="List available Confluence spaces.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "limit": {"type": "integer", "description": "Max spaces to return (default 50)."},
-                },
-            },
-            handler=get_spaces_handler,
-        ),
-    ]

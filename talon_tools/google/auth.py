@@ -58,32 +58,29 @@ def get_credentials(token_file: Path | str | None = None) -> Credentials:
     """Return valid Google OAuth credentials, refreshing if needed.
 
     Args:
-        token_file: Path to a specific token file (per-agent or per-flock).
-                    Can point to token.json (legacy) or token.enc (encrypted).
+        token_file: Deprecated path argument (kept for backward compat).
+                    Token is now stored in credential store as GOOGLE_TOKEN.
     """
-    from .credential_store import load_token, save_token
+    from talon_tools.credentials import set_credential
 
-    tf = Path(token_file) if token_file else TOKEN_FILE
-    if not tf:
+    token_json = cred("GOOGLE_TOKEN", "")
+    if not token_json:
         raise RuntimeError(
-            "No Google token file specified. "
+            "No Google token found. "
             "Run 'talon auth google --flock <path>' to set up."
         )
-    creds = None
 
-    token_json = load_token(tf)
-    if token_json:
-        creds = Credentials.from_authorized_user_info(
-            json.loads(token_json), SCOPES
-        )
+    creds = Credentials.from_authorized_user_info(
+        json.loads(token_json), SCOPES
+    )
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            save_token(creds.to_json(), tf)
+            set_credential("GOOGLE_TOKEN", creds.to_json())
         else:
             raise RuntimeError(
-                f"Google token missing or revoked at {tf}. "
+                "Google token expired or revoked. "
                 "Run: talon auth google --flock <path>"
             )
 
@@ -129,18 +126,14 @@ def authorize_interactive(token_file: Path | str | None = None) -> Credentials:
     """Run the full OAuth flow (opens browser). Use for initial setup / re-auth.
 
     Args:
-        token_file: Where to save the token. Defaults to global TOKEN_FILE.
+        token_file: Deprecated. Token is stored as GOOGLE_TOKEN in credential store.
     """
-    from .credential_store import save_token
+    from talon_tools.credentials import set_credential
 
     tf = Path(token_file) if token_file else TOKEN_FILE
-    if not tf:
-        raise FileNotFoundError(
-            "No token file configured. Run 'talon auth google --flock <path>' to set up."
-        )
     creds_file = _resolve_credentials(tf)
     if not creds_file or not creds_file.exists():
-        locations = [f"  - {tf.parent / 'credentials.json'} (local)"]
+        locations = [f"  - {tf.parent / 'credentials.json'} (local)" if tf else "  - (no token path)"]
         raise FileNotFoundError(
             f"OAuth client secrets not found.\n"
             f"Looked in:\n"
@@ -187,8 +180,8 @@ def authorize_interactive(token_file: Path | str | None = None) -> Credentials:
             raise
         raise
 
-    enc_path = save_token(creds.to_json(), tf)
-    print(f"\nToken saved to {enc_path} (encrypted)")
+    set_credential("GOOGLE_TOKEN", creds.to_json())
+    print("\nToken saved to credential store (encrypted)")
     return creds
 
 

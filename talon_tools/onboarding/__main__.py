@@ -99,11 +99,17 @@ def main() -> None:
     # For per-agent Google auth, delegate to the Google auth module directly
     if args.service == "google" and args.agent:
         from talon_tools.google.auth import authorize_interactive, _resolve_credentials
+
+        # Initialize credential provider so set_credential() persists to disk
+        from talon.credential_manager import init_credentials, set_agent_context
+        init_credentials(flock_dir)
+        set_agent_context(flock_dir / args.agent)
+
         agent_google_dir = flock_dir / args.agent / "google"
         target = agent_google_dir / "token.json"
         print(f"Authorizing Google for agent: {args.agent}")
         print(f"Flock: {flock_dir}")
-        print(f"Token will be saved to: {target}")
+        print(f"Token will be saved to credential store: {flock_dir / args.agent / '.credentials.enc'}")
 
         # Check if credentials.json exists anywhere in the resolution chain
         creds_file = _resolve_credentials(target)
@@ -115,6 +121,13 @@ def main() -> None:
 
         authorize_interactive(target)
         return
+
+    # Initialize credential provider for non-Google services too
+    try:
+        from talon.credential_manager import init_credentials
+        init_credentials(flock_dir)
+    except ImportError:
+        pass  # talon not installed — set_credential falls back to env var
 
     # Run the onboarding flow
     result = run_onboarding(args.service, flock_dir=flock_dir)
