@@ -8,6 +8,10 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Callable
 
 log = logging.getLogger(__name__)
 
@@ -168,6 +172,7 @@ async def run_command(
     *,
     timeout: int = TIMEOUT,
     cwd: Path | None = None,
+    sandbox_validator: "Callable[[str], str | None] | None" = None,
 ) -> str:
     """Execute a shell command and return combined stdout+stderr.
 
@@ -175,6 +180,8 @@ async def run_command(
         command: The shell command to run.
         timeout: Max seconds to wait before killing.
         cwd: Working directory (locked by the tool layer).
+        sandbox_validator: Optional callable(command) -> error_msg | None.
+                          Called for additional security checks (e.g., agent isolation).
     """
     blocked = check_blocked(command)
     if blocked:
@@ -185,6 +192,13 @@ async def run_command(
     if scope_blocked:
         log.warning("SCOPE BLOCKED command: %s — %s", command[:200], scope_blocked)
         return scope_blocked
+
+    # Additional sandbox validation (agent isolation, external blocklist)
+    if sandbox_validator:
+        sandbox_blocked = sandbox_validator(command)
+        if sandbox_blocked:
+            log.warning("SANDBOX BLOCKED command: %s — %s", command[:200], sandbox_blocked)
+            return sandbox_blocked
 
     log.info("EXEC [cwd=%s]: %s", cwd or "(default)", command[:200])
 
