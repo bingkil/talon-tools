@@ -22,8 +22,9 @@
 
 Features:
 - **Multi-service**: Google Workspace, Microsoft 365, Atlassian, Notion, Spotify, X, Facebook, ServiceNow, web search, file system, terminal
-- **Credential management**: Encrypted stores with per-agent scoping, config.yaml env, env vars
-- **Interactive onboarding**: `python -m talon_tools.cli setup` walks through OAuth flows, cookie extraction, and credential entry
+- **Credential management**: Provider-based credential contract — host injects storage, tools just call `get(key)`
+- **Interactive onboarding**: `talon-tools setup` walks through OAuth flows, cookie extraction, and credential entry
+- **MCP server**: Expose tools via Model Context Protocol for VS Code, Claude Desktop, and other MCP clients
 - **Modular installs**: Only install what you need via pip extras
 
 ## Install
@@ -60,69 +61,47 @@ Requires **Python 3.11+**.
 Interactive setup walks you through credentials for each service:
 
 ```bash
-python -m talon_tools.cli setup          # all tools
-python -m talon_tools.cli setup google   # just Google
-python -m talon_tools.cli setup x        # just X
+talon-tools setup              # pick from interactive list
+talon-tools setup google       # just Google
+talon-tools setup x            # just X
+talon-tools setup --status     # show which tools are configured
+```
+
+Or with `uv` (no install needed):
+
+```bash
+uv run talon-tools setup
+uv run talon-tools setup --status
 ```
 
 Features:
 - Automatic OAuth flows (Google, Microsoft, Spotify)
 - Browser cookie extraction (X, Facebook)
-- Signal: auto-downloads signal-cli + Java to `~/.config/talon/`
+- Signal: auto-downloads signal-cli + Java to `~/.talon-tools/`
 - Falls back to manual entry if automation fails
-- Encrypted credential storage (Fernet AES-128-CBC + HMAC-SHA256)
+- Credentials stored in `~/.talon-tools/credentials.yaml` by default
 
 ## Credentials
 
+talon-tools uses a **provider protocol** for credentials. Tools call `get(key)` / `set_credential(key, value)`; the host program (or the built-in CLI) provides the storage backend.
+
 ```python
-from talon_tools.credentials import get, set_agent_context
+from talon_tools.credentials import get, init
 
-# Set agent context (done automatically by the runtime)
-set_agent_context("/path/to/flock/my-agent")
+# The host injects a provider at startup
+init(my_provider)
 
-# Read — layered lookup (agent store → agent config.yaml → flock store → env var)
+# Tools read credentials through the contract
 token = get("TELEGRAM_TOKEN")
 url = get("JIRA_URL", "")  # with default
 ```
 
-Lookup order:
-1. **Agent encrypted store** (`<agent>/.credentials.enc`) — per-agent secrets
-2. **Agent config.yaml `env:`** — non-sensitive per-agent config
-3. **Flock encrypted store** (`<flock>/.credentials.enc`) — shared secrets
-4. **Custom backend** (if configured programmatically)
-5. **Environment variables** (`os.environ`) — always works as fallback
+The built-in CLI uses `~/.talon-tools/credentials.yaml` by default. Override with:
+- `--creds PATH` flag
+- `TALON_TOOLS_CREDENTIALS` env var
+- Existing files are auto-discovered (CWD `.env`, CWD `credentials.yaml`, `~/.config/talon-tools/`)
 
-### Encrypted store format
-
-Credentials are stored in `.credentials.enc` files using Fernet encryption. A single `.encryption_key` file at the flock root is shared by all stores (agent stores inherit from parent).
-
-Manage via CLI:
-```bash
-talon creds list                     # list flock-level credentials
-talon creds set TELEGRAM_TOKEN       # set flock-level credential
-talon creds set --agent john TOKEN   # set agent-level credential
-talon creds get TELEGRAM_TOKEN       # read a credential
-talon creds delete OLD_KEY           # remove a credential
-```
-
-### Agent config.yaml `env:` section
-
-Non-sensitive configuration can live directly in the agent's `config.yaml`:
-
-```yaml
-# my-agent/config.yaml
-provider: gemini
-model: gemini-2.5-flash
-tools: [atlassian, terminal]
-env:
-  JIRA_URL: https://company.atlassian.net
-  JIRA_USERNAME: you@company.com
-  JENKINS_URL: https://jenkins.company.com
-```
-
-These values are available via `get("JIRA_URL")` at runtime.
-
-See [`credentials.yaml.example`](credentials.yaml.example) for all available credential keys.
+See [docs/credentials.md](docs/credentials.md) for the full provider contract and examples.
 
 ## Quick Start
 
@@ -348,8 +327,9 @@ talon_tools/
 
 1. Create `talon_tools/myservice/tools.py` with `build_tools() -> list[Tool]`
 2. Create `talon_tools/myservice/onboarding.py` with `get_onboarding() -> ToolOnboarding`
-3. Add the import to `talon_tools/onboarding/registry.py`
-4. Add optional deps to `pyproject.toml` under `[project.optional-dependencies]`
+3. Add optional deps to `pyproject.toml` under `[project.optional-dependencies]`
+
+Tool onboardings are auto-discovered — no need to edit `registry.py`.
 
 ## Contributing
 

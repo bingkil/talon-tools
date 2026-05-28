@@ -48,7 +48,7 @@ docreader = [
     "python-pptx>=1.0",
 ]
 x = ["httpx", "browser-cookie3"]
-mcp = ["httpx"]
+mcp = ["httpx", "mcp>=1.0"]
 gemini = ["google-genai>=1.0", "openai>=1.0"]
 jenkins = ["httpx"]
 servicenow = ["aiohttp", "beautifulsoup4"]

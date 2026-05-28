@@ -53,6 +53,19 @@ class JiraClient:
     async def assign(self, key: str, account_id: str) -> None:
         await asyncio.to_thread(self._jira.assign_issue, key, account_id)
 
+    async def get_issue_full(self, key: str) -> dict:
+        """Get issue with all fields including custom fields (sprint, story points, etc.)."""
+        return await asyncio.to_thread(self._jira.get_issue, key, fields="*all")
+
+    async def link_issues(self, inward_key: str, outward_key: str, link_type: str = "Cloners") -> None:
+        """Create a link between two issues."""
+        data = {
+            "type": {"name": link_type},
+            "inwardIssue": {"key": inward_key},
+            "outwardIssue": {"key": outward_key},
+        }
+        await asyncio.to_thread(self._jira.create_issue_link, data)
+
     async def get_transitions(self, key: str) -> list[dict]:
         return await asyncio.to_thread(self._jira.get_issue_transitions, key)
 

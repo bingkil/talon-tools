@@ -398,43 +398,75 @@ def _validate_github_token_from_env() -> None:
 # Registry
 # ---------------------------------------------------------------------------
 
+# Directories that are NOT tool modules (infrastructure/internal)
+_SKIP_DIRS = {"onboarding", "providers", "__pycache__"}
+
+# Tools that need no setup (hardcoded since they have no onboarding.py)
+_ZERO_CONFIG = {
+    "search": "Web Search (DuckDuckGo)",
+    "terminal": "Terminal",
+    "workspace": "Workspace",
+    "docreader": "Document Reader",
+    "weather": "Weather",
+    "earthquake": "Earthquake",
+    "catholic": "Catholic KB",
+}
+
+
+def _discover_tool_onboardings() -> dict[str, ToolOnboarding]:
+    """Auto-discover onboarding definitions from tool modules.
+
+    Scans talon_tools/ for subdirectories containing onboarding.py
+    with a get_onboarding() function.
+    """
+    import importlib
+    from pathlib import Path
+
+    tools_root = Path(__file__).parent.parent  # talon_tools/
+    result: dict[str, ToolOnboarding] = {}
+
+    for entry in sorted(tools_root.iterdir()):
+        if not entry.is_dir():
+            continue
+        if entry.name.startswith("_") or entry.name in _SKIP_DIRS:
+            continue
+
+        onboarding_file = entry / "onboarding.py"
+        if not onboarding_file.exists():
+            # Check if it's a known zero-config tool
+            if entry.name in _ZERO_CONFIG:
+                result[entry.name] = _zero_config(entry.name, _ZERO_CONFIG[entry.name])
+            continue
+
+        try:
+            mod = importlib.import_module(f"talon_tools.{entry.name}.onboarding")
+            get_fn = getattr(mod, "get_onboarding", None)
+            if get_fn:
+                ob = get_fn()
+                result[ob.service] = ob
+        except Exception:
+            # Module failed to import (missing deps, etc.) — skip
+            continue
+
+    return result
+
+
 def get_all_onboardings() -> dict[str, ToolOnboarding]:
     """Return all tool onboarding definitions.
 
-    Each tool module provides its own `onboarding.py` with a `get_onboarding()`
-    function. Channels without a tool module are defined above.
+    Auto-discovers tool modules with onboarding.py, then adds
+    channel onboardings defined in this file.
     """
-    from talon_tools.atlassian.onboarding import get_onboarding as atlassian
-    from talon_tools.notion.onboarding import get_onboarding as notion
-    from talon_tools.servicenow.onboarding import get_onboarding as servicenow
-    from talon_tools.google.onboarding import get_onboarding as google
-    from talon_tools.microsoft.onboarding import get_onboarding as microsoft
-    from talon_tools.spotify.onboarding import get_onboarding as spotify
-    from talon_tools.x.onboarding import get_onboarding as x
-    from talon_tools.facebook.onboarding import get_onboarding as facebook
-    from talon_tools.wa.onboarding import get_onboarding as wa
+    result = _discover_tool_onboardings()
 
-    return {
-        # Zero-config
-        "search": _zero_config("search", "Web Search (DuckDuckGo)"),
-        "terminal": _zero_config("terminal", "Terminal"),
-        "workspace": _zero_config("workspace", "Workspace"),
-        # Tools (onboarding from each module)
-        "atlassian": atlassian(),
-        "notion": notion(),
-        "servicenow": servicenow(),
-        "google": google(),
-        "microsoft": microsoft(),
-        "spotify": spotify(),
-        "x": x(),
-        "facebook": facebook(),
-        # Providers
-        "github": _github_onboarding(),
-        # Channels
-        "telegram": _telegram_onboarding(),
-        "discord": _discord_onboarding(),
-        "slack": _slack_onboarding(),
-        "viber": _viber_onboarding(),
-        "signal": _signal_onboarding(),
-        "wa": wa(),
-    }
+    # Channels (no tool module in talon-tools, onboarding lives here)
+    result["telegram"] = _telegram_onboarding()
+    result["discord"] = _discord_onboarding()
+    result["slack"] = _slack_onboarding()
+    result["viber"] = _viber_onboarding()
+    result["signal"] = _signal_onboarding()
+
+    # Providers
+    result["github"] = _github_onboarding()
+
+    return result
