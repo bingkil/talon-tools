@@ -170,6 +170,8 @@ async def run(tools_filter: set[str] | None = None, creds_path: str | None = Non
     ready = []
     unavailable = []
     for name, ob in registry.items():
+        if tools_filter and name not in tools_filter:
+            continue
         if ob.setup_type == "zero" or ob.is_configured():
             ready.append(name)
         else:
