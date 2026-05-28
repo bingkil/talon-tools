@@ -11,22 +11,30 @@ import re
 from pathlib import Path, PurePosixPath
 
 
-def _resolve(root: Path, filepath: str) -> Path:
-    """Resolve a relative path inside the root, rejecting escapes."""
+def _resolve(root: Path, filepath: str, extra_read_roots: list[Path] | None = None) -> Path:
+    """Resolve a relative path inside the root (or extra read roots), rejecting escapes."""
     root = root.resolve()
     root.mkdir(parents=True, exist_ok=True)
     clean = PurePosixPath(filepath)
-    if clean.is_absolute() or ".." in clean.parts:
+    if clean.is_absolute():
         raise ValueError(f"Invalid path: {filepath}")
     resolved = (root / filepath).resolve()
-    if not str(resolved).startswith(str(root)):
-        raise ValueError(f"Path escapes workspace: {filepath}")
-    return resolved
+    if str(resolved).startswith(str(root)):
+        return resolved
+    # Check extra read-only roots (allow .. traversal only if it lands in an allowed root)
+    if extra_read_roots and ".." in clean.parts:
+        for extra in extra_read_roots:
+            extra_resolved = extra.resolve()
+            if str(resolved).startswith(str(extra_resolved)):
+                return resolved
+    if ".." in clean.parts:
+        raise ValueError(f"Invalid path: {filepath}")
+    raise ValueError(f"Path escapes workspace: {filepath}")
 
 
-def ws_read(root: Path, filepath: str) -> str:
-    """Read a file from the workspace."""
-    path = _resolve(root, filepath)
+def ws_read(root: Path, filepath: str, extra_read_roots: list[Path] | None = None) -> str:
+    """Read a file from the workspace (or extra read-only paths)."""
+    path = _resolve(root, filepath, extra_read_roots=extra_read_roots)
     if not path.is_file():
         return f"File not found: {filepath}"
     return path.read_text(encoding="utf-8")
@@ -45,12 +53,12 @@ def ws_write(root: Path, filepath: str, content: str) -> str:
     return f"Written: {filepath} ({len(content)} bytes)"
 
 
-def ws_list(root: Path, dirpath: str = "") -> str:
-    """List files and directories in a workspace path."""
+def ws_list(root: Path, dirpath: str = "", extra_read_roots: list[Path] | None = None) -> str:
+    """List files and directories in a workspace path (or extra read-only paths)."""
     root_resolved = root.resolve()
     root_resolved.mkdir(parents=True, exist_ok=True)
     if dirpath:
-        target = _resolve(root, dirpath)
+        target = _resolve(root, dirpath, extra_read_roots=extra_read_roots)
     else:
         target = root_resolved
 

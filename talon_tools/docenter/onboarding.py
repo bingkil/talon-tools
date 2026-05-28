@@ -1,4 +1,4 @@
-"""Docenter onboarding — JWT credential setup."""
+"""Docenter onboarding — session cookie or JWT credential setup."""
 
 from __future__ import annotations
 
@@ -25,43 +25,20 @@ def get_onboarding() -> ToolOnboarding:
         configured_check=_is_docenter_configured,
         steps=[
             OnboardingStep(
-                title="Set JWT Key",
+                title="Set Session Cookie",
                 instruction=(
-                    "Provide the Docenter JWT signing key (base64-encoded).\n"
+                    "Provide the Docenter session cookie.\n"
                     "\n"
-                    "To get this key:\n"
-                    "  1. Go to https://actimize.zoominsoftware.io/admin\n"
-                    "  2. Navigate to Settings > SSO & Authentication > JWT\n"
-                    "  3. Copy the 'Signing Key' value\n"
+                    "Easiest method (actimize-tools):\n"
+                    "  Run: actimize-tools login\n"
+                    "  This opens a browser, you log in, and the cookie is saved automatically.\n"
                     "\n"
-                    "If you don't have admin access, ask your Docenter admin\n"
-                    "or check the team's shared credentials vault."
+                    "Manual method (browser dev tools):\n"
+                    "  1. Go to https://docs.niceactimize.com/ and log in\n"
+                    "  2. Open DevTools (F12) > Application > Cookies\n"
+                    "  3. Copy the '_SESSION' cookie value"
                 ),
-                credential_key="DOCENTER_JWT_KEY",
-            ),
-            OnboardingStep(
-                title="Set JWT Issuer",
-                instruction=(
-                    "Provide the JWT issuer identifier.\n"
-                    "This is the 'iss' claim value used when generating tokens.\n"
-                    "\n"
-                    "Typically this is your company's SSO issuer URL, e.g.:\n"
-                    "  https://login.microsoftonline.com/<tenant-id>/v2.0\n"
-                    "\n"
-                    "Check the same JWT settings page in the Docenter admin panel,\n"
-                    "or ask your identity team for the issuer value."
-                ),
-                credential_key="DOCENTER_JWT_ISSUER",
-            ),
-            OnboardingStep(
-                title="Set User Email",
-                instruction=(
-                    "Provide your Actimize email address.\n"
-                    "This is used as the 'sub' (subject) claim in the JWT.\n"
-                    "\n"
-                    "Use your standard corporate email, e.g. first.last@niceactimize.com"
-                ),
-                credential_key="DOCENTER_USER_EMAIL",
+                credential_key="DOCENTER_SESSION",
             ),
         ],
     )

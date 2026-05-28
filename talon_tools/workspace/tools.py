@@ -9,17 +9,22 @@ from talon_tools import Tool, ToolResult
 from .fs import ws_read, ws_write, ws_list, ws_delete, ws_append, ws_update, ws_grep
 
 
-def build_tools(root_dir: Path) -> list[Tool]:
-    """Return workspace file tools bound to the given root directory."""
+def build_tools(root_dir: Path, extra_read_paths: list[Path] | None = None) -> list[Tool]:
+    """Return workspace file tools bound to the given root directory.
+
+    Args:
+        root_dir: Primary workspace root (read + write).
+        extra_read_paths: Additional directories the agent can read/list (read-only).
+    """
 
     async def read_handler(args: dict[str, Any]) -> ToolResult:
-        return ToolResult(content=ws_read(root_dir, args.get("path", "")))
+        return ToolResult(content=ws_read(root_dir, args.get("path", ""), extra_read_roots=extra_read_paths))
 
     async def write_handler(args: dict[str, Any]) -> ToolResult:
         return ToolResult(content=ws_write(root_dir, args.get("path", ""), args.get("content", "")))
 
     async def list_handler(args: dict[str, Any]) -> ToolResult:
-        return ToolResult(content=ws_list(root_dir, args.get("path", "")))
+        return ToolResult(content=ws_list(root_dir, args.get("path", ""), extra_read_roots=extra_read_paths))
 
     async def delete_handler(args: dict[str, Any]) -> ToolResult:
         return ToolResult(content=ws_delete(root_dir, args.get("path", "")))
