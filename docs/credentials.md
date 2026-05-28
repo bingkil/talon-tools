@@ -301,6 +301,23 @@ class EnvProvider:
 credentials.init(EnvProvider())
 ```
 
+### YAML file provider (built-in CLI)
+
+The CLI ships with a built-in `_CredStoreProvider` that reads/writes `.env` or `.yaml` files.
+Default path: `~/.talon-tools/credentials.yaml`.
+
+```bash
+talon-tools setup              # uses default path
+talon-tools setup --creds /path/to/creds.yaml   # explicit path
+TALON_TOOLS_CREDENTIALS=/path/to/creds.yaml talon-tools setup  # env var
+```
+
+Discovery order when no explicit path is given:
+1. `TALON_TOOLS_CREDENTIALS` env var
+2. Existing file in CWD (`.env` or `credentials.yaml`)
+3. Existing file in `~/.config/talon-tools/` or `~/.config/talon/`
+4. Default: `~/.talon-tools/credentials.yaml`
+
 ### Full example (encrypted store + env fallback)
 
 ```python

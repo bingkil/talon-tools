@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -163,6 +164,12 @@ def build_tools() -> list[Tool]:
             fields["labels"] = labels
         if args.get("priority"):
             fields["priority"] = {"name": args["priority"]}
+        if args.get("fields"):
+            try:
+                extra = json.loads(args["fields"])
+                fields.update(extra)
+            except json.JSONDecodeError as e:
+                return ToolResult(content=f"Error: invalid fields JSON: {e}", is_error=True)
         if not fields:
             return ToolResult(content="Error: no fields to update", is_error=True)
         try:
@@ -206,6 +213,71 @@ def build_tools() -> list[Tool]:
             return ToolResult(content=f"Assigned {key} to {account_id}")
         except Exception as e:
             log.exception("jira_assign failed")
+            return ToolResult(content=f"Error: {e}", is_error=True)
+
+    async def clone_issue_handler(args: dict[str, Any]) -> ToolResult:
+        source_key = args.get("issue_key", "")
+        if not source_key:
+            return ToolResult(content="Error: issue_key is required", is_error=True)
+        try:
+            source = await _get_jira().get_issue_full(source_key)
+            sf = source.get("fields", {})
+            project = sf.get("project", {}).get("key", "")
+            summary = args.get("summary") or sf.get("summary", "")
+            issue_type = sf.get("issuetype", {}).get("name", "Task")
+            description = sf.get("description") or ""
+
+            # Build fields for the clone
+            create_fields: dict[str, Any] = {
+                "project": {"key": project},
+                "summary": summary,
+                "issuetype": {"name": issue_type},
+            }
+            if description:
+                create_fields["description"] = description
+            # Copy labels
+            if sf.get("labels"):
+                create_fields["labels"] = sf["labels"]
+            # Copy priority
+            if sf.get("priority"):
+                create_fields["priority"] = {"name": sf["priority"]["name"]}
+            # Copy assignee
+            if sf.get("assignee"):
+                create_fields["assignee"] = {"id": sf["assignee"]["accountId"]}
+            # Apply overrides from fields JSON
+            if args.get("fields"):
+                try:
+                    extra = json.loads(args["fields"])
+                    create_fields.update(extra)
+                except json.JSONDecodeError as e:
+                    return ToolResult(content=f"Error: invalid fields JSON: {e}", is_error=True)
+
+            result = await asyncio.to_thread(_get_jira()._jira.create_issue, create_fields)
+            new_key = result.get("key", "")
+
+            # Link clone to original
+            link_type = args.get("link_type", "Cloners")
+            try:
+                await _get_jira().link_issues(new_key, source_key, link_type)
+            except Exception:
+                log.warning("Could not create link between %s and %s", new_key, source_key)
+
+            return ToolResult(content=f"Cloned {source_key} → {new_key}")
+        except Exception as e:
+            log.exception("jira_clone_issue failed")
+            return ToolResult(content=f"Error: {e}", is_error=True)
+
+    async def link_issues_handler(args: dict[str, Any]) -> ToolResult:
+        inward = args.get("inward_issue", "")
+        outward = args.get("outward_issue", "")
+        link_type = args.get("link_type", "Relates")
+        if not inward or not outward:
+            return ToolResult(content="Error: inward_issue and outward_issue are required", is_error=True)
+        try:
+            await _get_jira().link_issues(inward, outward, link_type)
+            return ToolResult(content=f"Linked {inward} ←[{link_type}]→ {outward}")
+        except Exception as e:
+            log.exception("jira_link_issues failed")
             return ToolResult(content=f"Error: {e}", is_error=True)
 
     jira_tools = [
@@ -262,7 +334,12 @@ def build_tools() -> list[Tool]:
         ),
         Tool(
             name="jira_update_issue",
-            description="Update fields on an existing Jira issue.",
+            description=(
+                "Update fields on an existing Jira issue. Use 'fields' for custom/arbitrary fields "
+                "as a JSON object (e.g. story points, sprint). Common custom field examples: "
+                '{"customfield_10016": 3} for story points, '
+                '{"customfield_10020": {"id": 42}} for sprint.'
+            ),
             parameters={
                 "type": "object",
                 "properties": {
@@ -271,6 +348,7 @@ def build_tools() -> list[Tool]:
                     "description": {"type": "string", "description": "New description."},
                     "labels": {"type": "string", "description": "Comma-separated labels."},
                     "priority": {"type": "string", "description": "Priority name (e.g. High, Medium, Low)."},
+                    "fields": {"type": "string", "description": "JSON object of additional fields to set (custom fields, sprint, story points, etc.)."},
                 },
                 "required": ["issue_key"],
             },
@@ -317,6 +395,42 @@ def build_tools() -> list[Tool]:
                 "required": ["issue_key", "account_id"],
             },
             handler=assign_handler,
+        ),
+        Tool(
+            name="jira_clone_issue",
+            description=(
+                "Clone a Jira issue. Copies summary, description, labels, priority, assignee, and issue type. "
+                "Creates a link between clone and original. Use 'fields' JSON to override or add fields "
+                "(sprint, story points, etc.) on the clone."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "issue_key": {"type": "string", "description": "Source issue key to clone (e.g. PROJ-123)."},
+                    "summary": {"type": "string", "description": "Override summary for the clone. Defaults to original."},
+                    "fields": {"type": "string", "description": "JSON object of additional/override fields on the clone."},
+                    "link_type": {"type": "string", "description": "Link type name (default: Cloners)."},
+                },
+                "required": ["issue_key"],
+            },
+            handler=clone_issue_handler,
+        ),
+        Tool(
+            name="jira_link_issues",
+            description=(
+                "Create a link between two Jira issues. Common link types: "
+                "'Relates', 'Blocks', 'Cloners', 'Duplicate'."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "inward_issue": {"type": "string", "description": "Inward issue key (e.g. PROJ-123)."},
+                    "outward_issue": {"type": "string", "description": "Outward issue key (e.g. PROJ-456)."},
+                    "link_type": {"type": "string", "description": "Link type name (default: Relates)."},
+                },
+                "required": ["inward_issue", "outward_issue"],
+            },
+            handler=link_issues_handler,
         ),
     ]
 

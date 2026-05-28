@@ -4,6 +4,8 @@ Usage:
     talon-tools setup              # interactive tool picker
     talon-tools setup google       # onboard a specific tool
     talon-tools setup --status     # show what's configured
+    talon-tools tools              # list all modules and their tools
+    talon-tools tools google       # list tools in a specific module
 """
 
 from __future__ import annotations
@@ -63,6 +65,169 @@ def _header(text: str) -> None:
 # ---------------------------------------------------------------------------
 # Status command
 # ---------------------------------------------------------------------------
+
+_SKIP_MODULES = {"onboarding", "providers", "__pycache__", "channels"}
+
+
+def _discover_tool_modules() -> list[str]:
+    """Return sorted list of module names that have a tools.py."""
+    pkg_dir = Path(__file__).parent
+    modules = []
+    for child in sorted(pkg_dir.iterdir()):
+        if not child.is_dir() or child.name.startswith(("_", ".")):
+            continue
+        if child.name in _SKIP_MODULES:
+            continue
+        if (child / "tools.py").exists():
+            modules.append(child.name)
+    return modules
+
+
+def _load_tools(module_name: str) -> list[tuple[str, str]] | str:
+    """Import build_tools() from a module and return [(name, description), ...].
+
+    Returns an error string if the module can't be loaded.
+    """
+    try:
+        import importlib, inspect
+        mod = importlib.import_module(f"talon_tools.{module_name}.tools")
+        fn = mod.build_tools
+        sig = inspect.signature(fn)
+
+        # Build dummy args for required parameters so we can get tool metadata
+        dummy_args = {}
+        for name, param in sig.parameters.items():
+            if param.default is inspect.Parameter.empty and param.kind in (
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            ):
+                ann = param.annotation
+                if ann is Path or (isinstance(ann, str) and "Path" in ann):
+                    dummy_args[name] = Path(".")
+                elif ann is str or (isinstance(ann, str) and "str" in ann):
+                    dummy_args[name] = ""
+                else:
+                    dummy_args[name] = None
+
+        tools = fn(**dummy_args)
+        return [(t.name, t.description) for t in tools]
+    except ModuleNotFoundError as e:
+        return f"missing package: {e.name}"
+    except Exception as e:
+        return str(e)
+
+
+def _load_tools_from_source(module_name: str) -> list[tuple[str, str]]:
+    """Extract Tool names from source using AST when import fails."""
+    import ast
+    src_path = Path(__file__).parent / module_name / "tools.py"
+    if not src_path.exists():
+        return []
+    try:
+        tree = ast.parse(src_path.read_text(encoding="utf-8"))
+        results: list[tuple[str, str]] = []
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+
+            # Match Tool(...) or _tool(...)
+            func = node.func
+            is_tool_call = (
+                (isinstance(func, ast.Name) and func.id in ("Tool", "_tool"))
+                or (isinstance(func, ast.Attribute) and func.attr == "Tool")
+            )
+            if not is_tool_call:
+                continue
+
+            name = ""
+            desc = ""
+
+            # Check keyword arg: name="..."
+            for kw in node.keywords:
+                if kw.arg == "name" and isinstance(kw.value, ast.Constant):
+                    name = str(kw.value.value)
+                elif kw.arg == "description" and isinstance(kw.value, ast.Constant):
+                    desc = str(kw.value.value)
+
+            # Check positional args: _tool("name", "description", ...)
+            if not name and node.args:
+                if isinstance(node.args[0], ast.Constant):
+                    name = str(node.args[0].value)
+                if len(node.args) > 1 and isinstance(node.args[1], ast.Constant):
+                    desc = str(node.args[1].value)
+
+            if name:
+                results.append((name, desc))
+
+        return results
+    except Exception:
+        return []
+
+
+def _module_doc(module_name: str) -> str:
+    """Return the first line of a tool module's docstring, or empty string."""
+    try:
+        import importlib
+        mod = importlib.import_module(f"talon_tools.{module_name}.tools")
+        doc = (mod.__doc__ or "").strip().split("\n")[0]
+        return doc
+    except Exception:
+        # Fall back to reading the docstring from source
+        try:
+            import ast
+            src = Path(__file__).parent / module_name / "tools.py"
+            tree = ast.parse(src.read_text(encoding="utf-8"))
+            doc = ast.get_docstring(tree) or ""
+            return doc.strip().split("\n")[0]
+        except Exception:
+            return ""
+
+
+def _list_tools(module_filter: str | None = None) -> None:
+    """List available tools, optionally filtered to a single module."""
+    modules = _discover_tool_modules()
+
+    if module_filter:
+        if module_filter not in modules:
+            print(f"\n  Unknown module: {_c(_RED, module_filter)}")
+            print(f"  Available: {', '.join(modules)}")
+            sys.exit(1)
+        modules = [module_filter]
+
+    _header("Available Tools")
+
+    total = 0
+    for mod_name in modules:
+        result = _load_tools(mod_name)
+        doc = _module_doc(mod_name)
+
+        if isinstance(result, str):
+            # Try to get tools from source
+            source_tools = _load_tools_from_source(mod_name)
+            count = len(source_tools)
+            total += count
+            count_str = f"{count} tools, " if count else ""
+            label = _c(_DIM, f"({count_str}{result})")
+            print(f"\n  {_c(_BOLD, mod_name)} {label}")
+            if doc:
+                print(f"    {_c(_DIM, doc)}")
+            for name, desc in source_tools:
+                short = desc[:70] + "…" if len(desc) > 70 else desc
+                print(f"    {_c(_CYAN, name):40s} {_c(_DIM, short)}")
+            continue
+
+        count = len(result)
+        total += count
+        print(f"\n  {_c(_BOLD, mod_name)} {_c(_DIM, f'({count} tools)')}")
+        if doc:
+            print(f"    {_c(_DIM, doc)}")
+        for name, desc in result:
+            # Truncate long descriptions
+            short = desc[:70] + "…" if len(desc) > 70 else desc
+            print(f"    {_c(_CYAN, name):40s} {short}")
+
+    print(f"\n  {_c(_DIM, f'Total: {total} tools across {len(modules)} modules')}\n")
 
 def _show_status() -> None:
     """Show setup status for all tools."""
@@ -467,65 +632,124 @@ def _onboard_tool(name: str, registry: dict[str, ToolOnboarding]) -> None:
 # Credential persistence helpers
 # ---------------------------------------------------------------------------
 
+_DEFAULT_CREDS_PATH = Path("~/.talon-tools/credentials.yaml")
+
+
 def _init_credentials(creds_path: str | None = None) -> None:
-    """Initialize credentials storage.
+    """Initialize credentials storage with a file-backed provider.
 
     Args:
         creds_path: Explicit path to creds file. Format auto-detected from extension.
-                    If None, checks for existing files or prompts the user.
+                    If None, uses default ~/.talon-tools/credentials.yaml.
     """
-    from talon_tools.credentials import configure_storage
+    from talon_tools.credentials import init
 
+    resolved = _resolve_creds_path(creds_path)
+    existed = resolved.exists()
+    provider = _CredStoreProvider(resolved)
+    init(provider)
+
+    if existed:
+        print(f"  Credentials: {resolved}")
+    else:
+        print(f"  Credentials: {resolved} (will be created on first save)")
+
+
+def _resolve_creds_path(creds_path: str | None) -> Path:
+    """Resolve which credentials file to use.
+
+    Priority:
+        1. Explicit --creds flag
+        2. TALON_TOOLS_CREDENTIALS env var
+        3. Existing file discovery (CWD .env, CWD credentials.yaml, legacy paths)
+        4. Default: ~/.talon-tools/credentials.yaml
+    """
     if creds_path:
-        # User specified a path — use it directly
-        configure_storage(creds_path)
-        print(f"  Using credentials file: {creds_path}")
-        return
+        return Path(creds_path).expanduser()
 
-    # Auto-discover existing files
-    env_path = Path.cwd() / ".env"
-    yaml_candidates = [
+    # Check env var
+    env_val = os.environ.get("TALON_TOOLS_CREDENTIALS")
+    if env_val:
+        return Path(env_val).expanduser()
+
+    # Auto-discover existing files (backward compat)
+    existing_candidates = [
+        Path.cwd() / ".env",
         Path.cwd() / "credentials.yaml",
         Path.home() / ".config" / "talon-tools" / "credentials.yaml",
         Path.home() / ".config" / "talon" / "credentials.yaml",
     ]
+    existing = next((p for p in existing_candidates if p.exists()), None)
+    if existing:
+        return existing
 
-    existing_env = env_path.exists()
-    existing_yaml = next((p for p in yaml_candidates if p.exists()), None)
+    # Default
+    return _DEFAULT_CREDS_PATH.expanduser()
 
-    # If an existing file is found, use it but inform the user
-    if existing_env:
-        configure_storage("env", path=str(env_path))
-        print(f"  Using credentials: {env_path}")
-        return
-    if existing_yaml:
-        configure_storage("yaml", path=str(existing_yaml))
-        print(f"  Using credentials: {existing_yaml}")
-        return
 
-    # No existing file — ask the user where to store credentials
-    _header("Credential Storage")
-    print("  Where should credentials be saved?\n")
-    print(f"  1. {_c(_CYAN, '.env')} file (recommended, dotenv format)")
-    print(f"  2. {_c(_CYAN, 'credentials.yaml')} file (YAML format)")
-    print(f"  3. Custom path")
-    print()
+class _CredStoreProvider:
+    """Simple file-backed credential provider for the CLI.
 
-    choice = input("  Choice [1]: ").strip() or "1"
+    Supports .env (KEY=VALUE) and .yaml formats, with env var fallback.
+    """
 
-    if choice == "2":
-        path = Path.cwd() / "credentials.yaml"
-        configure_storage("yaml", path=str(path))
-        print(f"  → Credentials will be saved to: {path}")
-    elif choice == "3":
-        custom = input("  Enter path: ").strip()
-        if not custom:
-            custom = str(env_path)
-        configure_storage(custom)
-        print(f"  → Credentials will be saved to: {custom}")
-    else:
-        configure_storage("env", path=str(env_path))
-        print(f"  → Credentials will be saved to: {env_path}")
+    def __init__(self, path: Path):
+        self._path = path
+        self._data: dict[str, str] = {}
+        if path.exists():
+            if path.suffix in (".yaml", ".yml"):
+                self._load_yaml()
+            else:
+                self._load_env()
+
+    def _load_yaml(self) -> None:
+        import yaml
+        raw = yaml.safe_load(self._path.read_text(encoding="utf-8")) or {}
+        self._data = {k: str(v) for k, v in raw.items() if v is not None}
+
+    def _load_env(self) -> None:
+        for line in self._path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip().strip("'\"")
+                if key:
+                    self._data[key] = value
+
+    def get(self, key: str, default=None) -> str:
+        val = self._data.get(key)
+        if val is not None:
+            return val
+        val = os.environ.get(key)
+        if val is not None:
+            return val
+        if default is not None:
+            return default
+        raise KeyError(key)
+
+    def keys(self) -> set[str]:
+        result = set(self._data.keys())
+        result.update(k for k in os.environ if k == k.upper() and "_" in k)
+        return result
+
+    def set(self, key: str, value: str) -> None:
+        self._data[key] = value
+        self._persist()
+
+    def _persist(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        if self._path.suffix in (".yaml", ".yml"):
+            import yaml
+            self._path.write_text(
+                yaml.dump(self._data, default_flow_style=False),
+                encoding="utf-8",
+            )
+        else:
+            lines = [f"{k}={v}\n" for k, v in sorted(self._data.items())]
+            self._path.write_text("".join(lines), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -545,7 +769,22 @@ def main() -> None:
     setup_parser.add_argument("--status", action="store_true", help="Show setup status")
     setup_parser.add_argument(
         "--creds", metavar="PATH",
-        help="Path to credentials file (.env or .yaml). Default: auto-discover.",
+        help="Path to credentials file (.env or .yaml). Default: ~/.talon-tools/credentials.yaml",
+    )
+
+    # tools command
+    tools_parser = subparsers.add_parser("tools", help="List available tools per module")
+    tools_parser.add_argument("module", nargs="?", help="Module name to inspect (optional)")
+
+    # mcp command
+    mcp_parser = subparsers.add_parser("mcp", help="Start MCP stdio server")
+    mcp_parser.add_argument(
+        "--tools",
+        help="Comma-separated list of modules to load (e.g. atlassian,google,jenkins)",
+    )
+    mcp_parser.add_argument(
+        "--creds", metavar="PATH",
+        help="Path to credentials file (.env or .yaml)",
     )
 
     args = parser.parse_args()
@@ -554,7 +793,18 @@ def main() -> None:
         parser.print_help()
         sys.exit(0)
 
-    if args.command == "setup":
+    if args.command == "tools":
+        _list_tools(getattr(args, "module", None))
+    elif args.command == "mcp":
+        from talon_tools.mcp_server import main as mcp_main
+        mcp_args = []
+        if args.tools:
+            mcp_args += ["--tools", args.tools]
+        if args.creds:
+            mcp_args += ["--creds", args.creds]
+        sys.argv = ["talon-tools-mcp"] + mcp_args
+        mcp_main()
+    elif args.command == "setup":
         # Initialize credential storage
         _init_credentials(getattr(args, 'creds', None))
 
