@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from talon_tools.onboarding.base import ToolOnboarding, OnboardingStep
+from talon_tools.onboarding.base import ToolOnboarding, OnboardingStep, check_credential
+
+
+def _is_docenter_configured() -> bool:
+    """Docenter is configured if EITHER session cookie OR full JWT triple is set."""
+    if check_credential("DOCENTER_SESSION"):
+        return True
+    return (
+        check_credential("DOCENTER_JWT_KEY")
+        and check_credential("DOCENTER_JWT_ISSUER")
+        and check_credential("DOCENTER_USER_EMAIL")
+    )
 
 
 def get_onboarding() -> ToolOnboarding:
@@ -11,6 +22,7 @@ def get_onboarding() -> ToolOnboarding:
         display_name="Docenter (Actimize Documentation)",
         setup_type="manual",
         pip_extras=[],
+        configured_check=_is_docenter_configured,
         steps=[
             OnboardingStep(
                 title="Set JWT Key",

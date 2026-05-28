@@ -32,6 +32,7 @@ class ToolOnboarding:
     pip_extras: list[str] = field(default_factory=list)  # pip extras to install, e.g. ["google"]
     steps: list[OnboardingStep] = field(default_factory=list)
     verify: Callable[[], str] | None = None  # post-setup verification
+    configured_check: Callable[[], bool] | None = None  # custom override for is_configured
 
     def status(self) -> dict:
         """Check which credentials are configured."""
@@ -42,7 +43,9 @@ class ToolOnboarding:
         return results
 
     def is_configured(self) -> bool:
-        """True if all required credentials are set."""
+        """True if all required credentials are set (or custom check passes)."""
+        if self.configured_check is not None:
+            return self.configured_check()
         for step in self.steps:
             if step.credential_key and not step.is_optional:
                 if not check_credential(step.credential_key):
