@@ -557,8 +557,14 @@ def _install_pip_extras(packages: list[str]) -> None:
 
     print(f"\n  {_c(_CYAN, 'Installing dependencies: ' + ', '.join(missing))}")
     try:
+        # Try uv pip first (uv venvs don't include pip), fall back to pip
+        import shutil
+        if shutil.which("uv"):
+            cmd = ["uv", "pip", "install", "--quiet", *missing]
+        else:
+            cmd = [sys.executable, "-m", "pip", "install", "--quiet", *missing]
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", *missing],
+            cmd,
             capture_output=True, text=True, timeout=120,
         )
         if result.returncode == 0:
