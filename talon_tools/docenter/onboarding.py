@@ -10,7 +10,7 @@ def get_onboarding() -> ToolOnboarding:
         service="docenter",
         display_name="Docenter (Actimize Documentation)",
         setup_type="manual",
-        pip_extras=["docenter"],
+        pip_extras=[],
         steps=[
             OnboardingStep(
                 title="Set JWT Key",
