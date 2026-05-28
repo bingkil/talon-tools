@@ -11,6 +11,7 @@ from talon_tools import Tool, ToolResult
 from talon_tools.credentials import CredentialRequirement, validate, get as cred
 
 from .client import JiraClient, ConfluenceClient
+from .confluence_parse import parse as confluence_parse, extract_refs
 
 log = logging.getLogger(__name__)
 
@@ -519,6 +520,72 @@ def build_tools() -> list[Tool]:
             return ToolResult(content=f"Error: {e}", is_error=True)
 
 
+    async def conf_render_page_handler(args: dict[str, Any]) -> ToolResult:
+        page_id = args.get("page_id", "")
+        space = args.get("space", "")
+        title = args.get("title", "")
+        fmt = args.get("format", "md")
+        if fmt not in ("md", "html"):
+            return ToolResult(content="Error: format must be 'md' or 'html'", is_error=True)
+        if not page_id and not (space and title):
+            return ToolResult(content="Error: provide page_id, or both space and title", is_error=True)
+        try:
+            # Fetch page
+            if page_id:
+                page = await _get_confluence().get_page_by_id(page_id)
+            else:
+                page = await _get_confluence().get_page_by_title(space, title)
+            if not page:
+                return ToolResult(content="Page not found.")
+
+            page_title = page.get("title", "")
+            body_storage = page.get("body", {}).get("storage", {}).get("value", "")
+            if not body_storage:
+                return ToolResult(content=f"# {page_title}\n\n(no content)")
+
+            # Pre-scan for JIRA keys and user IDs to resolve
+            refs = extract_refs(body_storage)
+
+            # Build user resolver via Jira API
+            user_cache: dict[str, str] = {}
+            for account_id in refs.get("user_ids", set()):
+                try:
+                    user_data = await asyncio.to_thread(
+                        _get_jira()._jira.user, account_id=account_id
+                    )
+                    user_cache[account_id] = user_data.get("displayName", "")
+                except Exception:
+                    pass
+
+            # Build JIRA resolver via Jira API
+            jira_cache: dict[str, tuple[str, str, str]] = {}
+            jira_base = _url.rstrip("/")
+            for key in refs.get("jira_keys", set()):
+                try:
+                    issue = await asyncio.to_thread(
+                        _get_jira()._jira.get_issue, key, fields="summary,status"
+                    )
+                    summary = issue.get("fields", {}).get("summary", "")
+                    status = issue.get("fields", {}).get("status", {}).get("name", "")
+                    url = f"{jira_base}/browse/{key}"
+                    jira_cache[key] = (summary, status, url)
+                except Exception:
+                    pass
+
+            user_resolver = lambda aid: user_cache.get(aid)
+            jira_resolver = lambda k: jira_cache.get(k)
+
+            result = confluence_parse(
+                body_storage, fmt=fmt, title=page_title,
+                jira_base_url=jira_base,
+                user_resolver=user_resolver,
+                jira_resolver=jira_resolver,
+            )
+            return ToolResult(content=result)
+        except Exception as e:
+            log.exception("confluence_render_page failed")
+            return ToolResult(content=f"Error: {e}", is_error=True)
+
     confluence_tools = [
         Tool(
             name="confluence_search",
@@ -593,6 +660,29 @@ def build_tools() -> list[Tool]:
             },
             handler=conf_get_spaces_handler,
         ),
+        Tool(
+            name="confluence_render_page",
+            description=(
+                "Fetch a Confluence page and render it as clean Markdown or HTML. "
+                "Automatically resolves JIRA issue references and @user mentions. "
+                "Handles macros, tables, code blocks, task lists, panels, emoticons. "
+                "Use format='html' for a styled self-contained HTML document."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "page_id": {"type": "string", "description": "Page ID (numeric). Preferred."},
+                    "space": {"type": "string", "description": "Space key (e.g. PROJ). Used with title."},
+                    "title": {"type": "string", "description": "Page title. Used with space."},
+                    "format": {
+                        "type": "string",
+                        "description": "Output format: 'md' (Markdown, default) or 'html' (styled HTML document).",
+                        "enum": ["md", "html"],
+                    },
+                },
+            },
+            handler=conf_render_page_handler,
+        ),
     ]
 
     return jira_tools + confluence_tools
@@ -624,19 +714,20 @@ def _format_confluence_result(result: dict) -> str:
 
 
 def _format_confluence_page(page: dict) -> str:
-    """Format full page details."""
+    """Format full page details, converting storage format to Markdown."""
     title = page.get("title", "")
     pid = page.get("id", "")
     space = page.get("space", {}).get("key", "") if isinstance(page.get("space"), dict) else ""
     version = page.get("version", {}).get("number", "") if isinstance(page.get("version"), dict) else ""
-    body_storage = page.get("body", {}).get("storage", {}).get("value", "(no content)")
+    body_storage = page.get("body", {}).get("storage", {}).get("value", "")
 
-    lines = [
-        f"# {title}",
-        f"**ID:** {pid} | **Space:** {space} | **Version:** {version}",
-        "",
-        body_storage,
-    ]
-    return "\n".join(lines)
+    header = f"# {title}\n**ID:** {pid} | **Space:** {space} | **Version:** {version}\n"
+    if not body_storage:
+        return header + "\n(no content)"
+    try:
+        body_md = confluence_parse(body_storage)
+    except Exception:
+        body_md = body_storage  # fallback to raw if parser fails
+    return header + "\n" + body_md
 
 
