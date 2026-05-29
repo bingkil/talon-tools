@@ -17,7 +17,7 @@ def _client() -> httpx.Client:
     """Create an authenticated httpx client."""
     return httpx.Client(
         base_url=GRAPH_BASE,
-        headers={"Authorization": f"Bearer {get_token()}"},
+        headers={"Authorization": f"Bearer {get_token('mail')}"},
         timeout=30,
     )
 

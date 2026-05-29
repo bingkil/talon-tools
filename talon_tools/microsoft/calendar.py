@@ -16,7 +16,7 @@ from .auth import get_token, GRAPH_BASE
 def _client() -> httpx.Client:
     return httpx.Client(
         base_url=GRAPH_BASE,
-        headers={"Authorization": f"Bearer {get_token()}"},
+        headers={"Authorization": f"Bearer {get_token('calendar')}"},
         timeout=30,
     )
 

@@ -20,10 +20,12 @@ from typing import Any
 
 from talon_tools import Tool, ToolResult
 from talon_tools.credentials import CredentialRequirement, validate
-from . import outlook, calendar, teams
+from . import outlook, calendar, teams, onedrive
 
 CREDENTIALS = [
-    CredentialRequirement("MS_TOKEN_FILE", "Path to Microsoft Graph OAuth token file"),
+    CredentialRequirement("MS_MAIL_TOKEN", "Microsoft Graph mail token cache (MSAL)", required=False),
+    CredentialRequirement("MS_CALENDAR_TOKEN", "Microsoft Graph calendar token cache (MSAL)", required=False),
+    CredentialRequirement("MS_ONEDRIVE_TOKEN", "Microsoft Graph OneDrive token cache (MSAL)", required=False),
     CredentialRequirement("MS_CLIENT_ID", "Azure AD app client ID", required=False),
     CredentialRequirement("MS_TENANT_ID", "Azure AD tenant ID", required=False),
 ]
@@ -142,6 +144,44 @@ def teams_tools() -> list[Tool]:
 
 
 # ---------------------------------------------------------------------------
+# OneDrive
+# ---------------------------------------------------------------------------
+
+def onedrive_tools() -> list[Tool]:
+    return [
+        _tool("onedrive_list",
+              "List files and folders in OneDrive at a given path. Empty path = root.",
+              {"type": "object", "properties": {
+                  "path": {"type": "string", "description": "Folder path (e.g. 'Documents/Reports'). Empty for root."},
+                  "max_results": {"type": "integer", "description": "Max items to return (default 25)"},
+              }},
+              onedrive.list_files),
+
+        _tool("onedrive_search",
+              "Search OneDrive files by name or content.",
+              {"type": "object", "properties": {
+                  "query": {"type": "string", "description": "Search query (filename or content keywords)"},
+                  "max_results": {"type": "integer", "description": "Max results (default 15)"},
+              }, "required": ["query"]},
+              onedrive.search_files),
+
+        _tool("onedrive_read",
+              "Read the text content of a OneDrive file by its item ID. Works for text, CSV, markdown, code files.",
+              {"type": "object", "properties": {
+                  "item_id": {"type": "string", "description": "OneDrive item ID"},
+              }, "required": ["item_id"]},
+              onedrive.read_file),
+
+        _tool("onedrive_info",
+              "Get detailed metadata for a OneDrive file or folder (size, dates, author, URL).",
+              {"type": "object", "properties": {
+                  "item_id": {"type": "string", "description": "OneDrive item ID"},
+              }, "required": ["item_id"]},
+              onedrive.get_info),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Combined
 # ---------------------------------------------------------------------------
 
@@ -151,4 +191,4 @@ def outlook_tools() -> list[Tool]:
 
 def build_tools() -> list[Tool]:
     validate("microsoft", CREDENTIALS)
-    return mail_tools() + calendar_tools() + teams_tools()
+    return mail_tools() + calendar_tools() + teams_tools() + onedrive_tools()
