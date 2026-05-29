@@ -14,7 +14,7 @@ import re
 import time
 from typing import Any
 
-import aiohttp
+import httpx
 from bs4 import BeautifulSoup
 
 from talon_tools.credentials import get as cred
@@ -76,14 +76,28 @@ class DocenterClient:
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         """GET returning JSON."""
+        import httpx
+        import json as _json
+        import gzip
+
         url = f"{self._base}{path}"
         headers = self._get_headers()
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                if resp.status >= 400:
-                    text = await resp.text()
-                    raise RuntimeError(f"Docenter API error {resp.status}: {text[:300]}")
-                return await resp.json()
+        # Tell server not to gzip — it lies about Content-Encoding
+        headers["Accept-Encoding"] = "identity"
+        async with httpx.AsyncClient(timeout=30) as client:
+            req = client.build_request("GET", url, params=params, headers=headers)
+            resp = await client.send(req, stream=True)
+            # Read raw bytes bypassing content-decoding
+            raw = b"".join([chunk async for chunk in resp.stream])
+            await resp.aclose()
+            if resp.status_code >= 400:
+                raise RuntimeError(f"Docenter API error {resp.status_code}: {raw[:300].decode(errors='replace')}")
+            # Server may claim gzip but send plain JSON — try decompress, fallback to raw
+            try:
+                data = gzip.decompress(raw)
+            except Exception:
+                data = raw
+            return _json.loads(data)
 
     # ── Search ────────────────────────────────────────────────────────
 
