@@ -114,6 +114,15 @@ _WRITE_PATTERNS: list[re.Pattern] = [
     re.compile(r"\b(?:Set|Add)-Content\s+(?:-Path\s+)?[\"']?([^\s\"'|;]+)", re.IGNORECASE),
     # New-Item -Path
     re.compile(r"\bNew-Item\s+(?:-(?:Path|Name)\s+)?[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    # Move-Item / Copy-Item / Rename-Item — check both -Path (source) and -Destination
+    re.compile(r"\bMove-Item\s+(?:-Path\s+)?[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    re.compile(r"\bMove-Item\b.*-Destination\s+[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    re.compile(r"\bCopy-Item\s+(?:-Path\s+)?[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    re.compile(r"\bCopy-Item\b.*-Destination\s+[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    re.compile(r"\bRename-Item\s+(?:-Path\s+)?[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    # mv / cp / move / copy aliases
+    re.compile(r"\b(?:mv|move)\s+[\"']?([^\s\"'|;]+)\s+[\"']?([^\s\"'|;]+)", re.IGNORECASE),
+    re.compile(r"\b(?:cp|copy)\s+[\"']?([^\s\"'|;]+)\s+[\"']?([^\s\"'|;]+)", re.IGNORECASE),
     # mkdir / md
     re.compile(r"\b(?:mkdir|md)\s+[\"']?([^\s\"'|;]+)", re.IGNORECASE),
     # Tee-Object -FilePath
@@ -123,46 +132,53 @@ _WRITE_PATTERNS: list[re.Pattern] = [
 ]
 
 
-def check_write_scope(command: str, cwd: Path | None) -> str | None:
-    """Block commands that write outside the allowed workspace.
+def check_write_scope(command: str, write_root: Path | None, cwd: Path | None = None) -> str | None:
+    """Block commands that write outside the allowed write_root.
 
     Returns a reason string if blocked, else None.
-    Only enforced when cwd is set (i.e., scope is defined).
+    Only enforced when write_root is set.
+
+    Args:
+        command: The shell command to check.
+        write_root: Allowed root directory for write operations.
+        cwd: Working directory for resolving relative paths (defaults to write_root).
     """
-    if cwd is None:
+    if write_root is None:
         return None
 
-    allowed = cwd.resolve()
+    allowed = write_root.resolve()
+    resolve_base = (cwd or write_root).resolve()
 
     for pattern in _WRITE_PATTERNS:
         for match in pattern.finditer(command):
-            target_str = match.group(1)
-            if not target_str or target_str.startswith("$") or target_str.startswith("("):
-                # Skip variable/expression targets — can't resolve statically
-                continue
+            # Check all captured groups (some patterns capture source + destination)
+            for i in range(1, len(match.groups()) + 1):
+                target_str = match.group(i)
+                if not target_str or target_str.startswith("$") or target_str.startswith("("):
+                    continue
 
-            # Sensitive path check (absolute match regardless of scope)
-            if _is_sensitive(target_str):
-                return f"Blocked: write targets sensitive path ({target_str})"
+                # Sensitive path check (absolute match regardless of scope)
+                if _is_sensitive(target_str):
+                    return f"Blocked: write targets sensitive path ({target_str})"
 
-            # Resolve relative to cwd
-            target = Path(target_str)
-            if not target.is_absolute():
-                target = cwd / target
+                # Resolve relative to cwd (where commands actually execute)
+                target = Path(target_str)
+                if not target.is_absolute():
+                    target = resolve_base / target
 
-            try:
-                resolved = target.resolve()
-            except (OSError, ValueError):
-                continue
+                try:
+                    resolved = target.resolve()
+                except (OSError, ValueError):
+                    continue
 
-            # Check if resolved path is within the allowed directory
-            try:
-                resolved.relative_to(allowed)
-            except ValueError:
-                return (
-                    f"Blocked: write target '{target_str}' resolves outside workspace "
-                    f"({resolved} is not under {allowed})"
-                )
+                # Check if resolved path is within the allowed write root
+                try:
+                    resolved.relative_to(allowed)
+                except ValueError:
+                    return (
+                        f"Blocked: write target '{target_str}' resolves outside workspace "
+                        f"({resolved} is not under {allowed})"
+                    )
 
     return None
 
@@ -172,6 +188,7 @@ async def run_command(
     *,
     timeout: int = TIMEOUT,
     cwd: Path | None = None,
+    write_root: Path | None = None,
     sandbox_validator: "Callable[[str], str | None] | None" = None,
 ) -> str:
     """Execute a shell command and return combined stdout+stderr.
@@ -180,6 +197,7 @@ async def run_command(
         command: The shell command to run.
         timeout: Max seconds to wait before killing.
         cwd: Working directory (locked by the tool layer).
+        write_root: Allowed root for write operations. Defaults to cwd if not set.
         sandbox_validator: Optional callable(command) -> error_msg | None.
                           Called for additional security checks (e.g., agent isolation).
     """
@@ -188,7 +206,7 @@ async def run_command(
         log.warning("BLOCKED command: %s — %s", command[:200], blocked)
         return blocked
 
-    scope_blocked = check_write_scope(command, cwd)
+    scope_blocked = check_write_scope(command, write_root or cwd, cwd=cwd)
     if scope_blocked:
         log.warning("SCOPE BLOCKED command: %s — %s", command[:200], scope_blocked)
         return scope_blocked

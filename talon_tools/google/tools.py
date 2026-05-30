@@ -65,8 +65,9 @@ def _bind(fn, token_file):
 # Gmail
 # ---------------------------------------------------------------------------
 
-def gmail_tools(token_file=None) -> list[Tool]:
+def gmail_tools(token_file=None, inputs_dir=None) -> list[Tool]:
     b = partial(_bind, token_file=token_file)
+    _inputs_dir = inputs_dir
     return [
         _tool("gmail_inbox",
               "List recent emails in the inbox. Optionally filter with Gmail search query.",
@@ -154,14 +155,14 @@ def gmail_tools(token_file=None) -> list[Tool]:
               b(gmail.unstar_message)),
 
         _tool("gmail_download_attachment",
-              "Download an email attachment to the inputs/ folder (same location as channel attachments). Use gmail_read first to get the attachment_id.",
+              "Download an email attachment to workspace/inputs/ folder. Use gmail_read first to get the attachment_id. The returned path works directly with doc_read.",
               {"type": "object", "properties": {
                   "message_id": {"type": "string", "description": "Gmail message ID containing the attachment"},
                   "attachment_id": {"type": "string", "description": "Attachment ID from gmail_read output"},
                   "filename": {"type": "string", "description": "Filename to save as"},
-                  "save_dir": {"type": "string", "description": "Override directory (default: inputs/YYYY-MM-DD/)"},
+                  "save_dir": {"type": "string", "description": "Override directory (default: workspace/inputs/YYYY-MM-DD/)"},
               }, "required": ["message_id", "attachment_id", "filename"]},
-              b(gmail.download_attachment)),
+              partial(b(gmail.download_attachment), save_dir=str(_inputs_dir)) if _inputs_dir else b(gmail.download_attachment)),
 
         _tool("gmail_get_thread",
               "Read all messages in an email conversation thread. Use the thread ID from gmail_read output.",
@@ -192,6 +193,13 @@ def gmail_tools(token_file=None) -> list[Tool]:
               "List all Gmail labels (system and user-created) with their IDs. Use label IDs with gmail_add_label/gmail_remove_label.",
               {"type": "object", "properties": {}},
               b(gmail.list_labels)),
+
+        _tool("gmail_create_label",
+              "Create a new Gmail label. Returns the label name and ID.",
+              {"type": "object", "properties": {
+                  "name": {"type": "string", "description": "Name for the new label (supports nesting with '/', e.g. 'Projects/Work')"},
+              }, "required": ["name"]},
+              b(gmail.create_label)),
 
         _tool("gmail_add_label",
               "Add a label to an email. Use gmail_list_labels first to get the label ID.",
@@ -748,16 +756,18 @@ def maps_tools() -> list[Tool]:
 # All tools
 # ---------------------------------------------------------------------------
 
-def build_tools(token_file=None, **_kwargs) -> list[Tool]:
+def build_tools(token_file=None, inputs_dir=None, **_kwargs) -> list[Tool]:
     """Return all Google tools, optionally bound to a specific token file.
 
     Args:
         token_file: Path to a specific Google OAuth token.json.
                     If None, uses the global default token.
+        inputs_dir: Default download directory for attachments.
+                    If None, uses inputs/YYYY-MM-DD/ relative to CWD.
     """
     validate("google", CREDENTIALS)
     return (
-        gmail_tools(token_file) +
+        gmail_tools(token_file, inputs_dir=inputs_dir) +
         calendar_tools(token_file) +
         docs_tools(token_file) +
         contacts_tools(token_file) +

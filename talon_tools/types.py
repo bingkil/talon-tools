@@ -139,6 +139,7 @@ class StreamDone:
     stop_reason: StopReason = StopReason.STOP
     content: str = ""  # full accumulated text
     usage: TokenUsage | None = None
+    had_tool_calls: bool = False  # whether tools were used during this response
 
 @dataclass
 class StreamError:

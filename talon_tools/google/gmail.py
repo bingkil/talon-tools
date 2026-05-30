@@ -294,7 +294,7 @@ def download_attachment(
 
     now = _dt.now()
     if save_dir:
-        out_dir = Path(save_dir)
+        out_dir = Path(save_dir) / now.strftime("%Y-%m-%d")
     else:
         out_dir = Path("inputs") / now.strftime("%Y-%m-%d")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -454,6 +454,14 @@ def list_labels(token_file=None) -> str:
     parts = ["System labels:"] + (system or ["  (none)"])
     parts += ["\nUser labels:"] + (user or ["  (none)"])
     return "\n".join(parts)
+
+
+def create_label(name: str, token_file=None) -> str:
+    """Create a new Gmail label."""
+    svc = _service(token_file)
+    body = {"name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show"}
+    label = svc.users().labels().create(userId="me", body=body).execute()
+    return f"Created label '{label['name']}' (id: {label['id']})"
 
 
 def add_label(message_id: str, label_id: str, token_file=None) -> str:

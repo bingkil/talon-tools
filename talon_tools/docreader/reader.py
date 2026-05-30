@@ -1,4 +1,8 @@
-"""Document reader — extracts text from PDF, Excel, Word, PowerPoint."""
+"""Document reader — extracts text from PDF, Excel, Word, PowerPoint.
+
+Uses LiteParse v2 (Rust-based) as the default parser for PDF and DOCX,
+with fallback to pypdf/python-docx if liteparse is unavailable.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +13,20 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".pdf", ".xlsx", ".xls", ".docx", ".pptx"}
+
+# ---------------------------------------------------------------------------
+# LiteParse v2 (primary engine for PDF/DOCX)
+# ---------------------------------------------------------------------------
+
+try:
+    from liteparse import LiteParse, ParseError
+
+    _liteparse = LiteParse(output_format="text", ocr_enabled=True, quiet=True)
+    _HAS_LITEPARSE = True
+    log.debug("LiteParse v2 available — using as default document parser")
+except ImportError:
+    _HAS_LITEPARSE = False
+    log.debug("LiteParse not installed — falling back to pypdf/python-docx")
 
 
 def read_document(path: str | Path) -> str:
@@ -40,11 +58,11 @@ def read_document_bytes(data: bytes, filename: str) -> str:
     buf = io.BytesIO(data)
 
     if ext == ".pdf":
-        return _read_pdf_stream(buf)
+        return _read_pdf_bytes(data)
     elif ext in (".xlsx", ".xls"):
         return _read_excel_stream(buf)
     elif ext == ".docx":
-        return _read_docx_stream(buf)
+        return _read_docx_bytes(data, filename)
     elif ext == ".pptx":
         return _read_pptx_stream(buf)
     else:
@@ -54,6 +72,29 @@ def read_document_bytes(data: bytes, filename: str) -> str:
 # -- PDF ---------------------------------------------------------------------
 
 def _read_pdf(path: Path) -> str:
+    if _HAS_LITEPARSE:
+        try:
+            result = _liteparse.parse(path)
+            if result.text.strip():
+                return result.text
+            log.warning("LiteParse returned empty for %s — falling back to pypdf", path.name)
+        except Exception as e:
+            log.warning("LiteParse failed for %s: %s — falling back to pypdf", path.name, e)
+    return _read_pdf_legacy(path)
+
+
+def _read_pdf_bytes(data: bytes) -> str:
+    if _HAS_LITEPARSE:
+        try:
+            result = _liteparse.parse(data)
+            if result.text.strip():
+                return result.text
+        except Exception as e:
+            log.warning("LiteParse failed on bytes: %s — falling back to pypdf", e)
+    return _read_pdf_stream(io.BytesIO(data))
+
+
+def _read_pdf_legacy(path: Path) -> str:
     from pypdf import PdfReader
     reader = PdfReader(str(path))
     return _extract_pdf(reader)
@@ -74,41 +115,32 @@ def _extract_pdf(reader) -> str:
     return "\n\n".join(pages) if pages else "(No text content found in PDF)"
 
 
-# -- Excel -------------------------------------------------------------------
-
-def _read_excel(path: Path) -> str:
-    from openpyxl import load_workbook
-    wb = load_workbook(str(path), read_only=True, data_only=True)
-    return _extract_excel(wb)
-
-
-def _read_excel_stream(buf: io.BytesIO) -> str:
-    from openpyxl import load_workbook
-    wb = load_workbook(buf, read_only=True, data_only=True)
-    return _extract_excel(wb)
-
-
-def _extract_excel(wb) -> str:
-    sheets = []
-    for name in wb.sheetnames:
-        ws = wb[name]
-        rows = []
-        for row in ws.iter_rows(values_only=True):
-            cells = [str(c) if c is not None else "" for c in row]
-            if any(cells):
-                rows.append(" | ".join(cells))
-        if rows:
-            header = rows[0]
-            sep = " | ".join("---" for _ in rows[0].split(" | "))
-            table = "\n".join([header, sep] + rows[1:])
-            sheets.append(f"## Sheet: {name}\n\n{table}")
-    wb.close()
-    return "\n\n".join(sheets) if sheets else "(No data found in workbook)"
-
-
-# -- Word (docx) -------------------------------------------------------------
+# -- DOCX -------------------------------------------------------------------
 
 def _read_docx(path: Path) -> str:
+    if _HAS_LITEPARSE:
+        try:
+            result = _liteparse.parse(path)
+            if result.text.strip():
+                return result.text
+            log.warning("LiteParse returned empty for %s — falling back to python-docx", path.name)
+        except Exception as e:
+            log.warning("LiteParse failed for %s: %s — falling back to python-docx", path.name, e)
+    return _read_docx_legacy(path)
+
+
+def _read_docx_bytes(data: bytes, filename: str) -> str:
+    if _HAS_LITEPARSE:
+        try:
+            result = _liteparse.parse(data)
+            if result.text.strip():
+                return result.text
+        except Exception as e:
+            log.warning("LiteParse failed on bytes: %s — falling back to python-docx", e)
+    return _read_docx_stream(io.BytesIO(data))
+
+
+def _read_docx_legacy(path: Path) -> str:
     from docx import Document
     doc = Document(str(path))
     return _extract_docx(doc)
@@ -150,6 +182,38 @@ def _extract_docx(doc) -> str:
             parts.append("\n".join([header, sep] + rows[1:]))
 
     return "\n\n".join(parts) if parts else "(No text content found in document)"
+
+
+# -- Excel -------------------------------------------------------------------
+
+def _read_excel(path: Path) -> str:
+    from openpyxl import load_workbook
+    wb = load_workbook(str(path), read_only=True, data_only=True)
+    return _extract_excel(wb)
+
+
+def _read_excel_stream(buf: io.BytesIO) -> str:
+    from openpyxl import load_workbook
+    wb = load_workbook(buf, read_only=True, data_only=True)
+    return _extract_excel(wb)
+
+
+def _extract_excel(wb) -> str:
+    sheets = []
+    for name in wb.sheetnames:
+        ws = wb[name]
+        rows = []
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(c) if c is not None else "" for c in row]
+            if any(cells):
+                rows.append(" | ".join(cells))
+        if rows:
+            header = rows[0]
+            sep = " | ".join("---" for _ in rows[0].split(" | "))
+            table = "\n".join([header, sep] + rows[1:])
+            sheets.append(f"## Sheet: {name}\n\n{table}")
+    wb.close()
+    return "\n\n".join(sheets) if sheets else "(No data found in workbook)"
 
 
 # -- PowerPoint --------------------------------------------------------------
