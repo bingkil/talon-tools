@@ -28,6 +28,13 @@ def _run_sync(coro):
 
 _ENV_PATTERN = re.compile(r"\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
 
+# Cache: keyed by frozenset of (server_name, url) tuples
+_tools_cache: dict[frozenset, list[Tool]] = {}
+
+
+def _cache_key(servers: list[dict[str, Any]]) -> frozenset:
+    return frozenset((s.get("name", "mcp"), s.get("url", "")) for s in servers)
+
 
 def _resolve_env(value: str) -> str:
     """Resolve $VAR or ${VAR} references in a string to credential/env values."""
@@ -47,6 +54,9 @@ def _resolve_headers(headers: dict[str, str] | None) -> dict[str, str] | None:
 def build_tools(servers: list[dict[str, Any]]) -> list[Tool]:
     """Build Talon tools by connecting to MCP servers and discovering their tools.
 
+    Results are cached for the sentinel session — MCP discovery only runs once
+    per unique server set.
+
     Args:
         servers: List of server configs, each with:
             - name: Server name (used as tool prefix)
@@ -57,6 +67,10 @@ def build_tools(servers: list[dict[str, Any]]) -> list[Tool]:
     Returns:
         List of Talon Tool objects wrapping remote MCP tools.
     """
+    key = _cache_key(servers)
+    if key in _tools_cache:
+        return _tools_cache[key]
+
     import asyncio
 
     tools: list[Tool] = []
@@ -87,6 +101,7 @@ def build_tools(servers: list[dict[str, Any]]) -> list[Tool]:
         log.info(f"MCP server '{name}': discovered {len(remote_tools)} tools")
         print(f"[MCP] {name}: {len(remote_tools)} tools loaded", flush=True)
 
+    _tools_cache[key] = tools
     return tools
 
 

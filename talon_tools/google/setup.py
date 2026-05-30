@@ -698,6 +698,10 @@ def _run_setup_steps(
     creds_path = save_client_credentials(client_id, client_secret, project_id, output_path, flock_dir, agent_name)
     print(f"\n  ✓ Credentials saved to {creds_path}")
 
+    # Persist GOOGLE_CREDENTIALS_FILE so tools can find it at runtime
+    from talon_tools.credentials import set_credential
+    set_credential("GOOGLE_CREDENTIALS_FILE", str(creds_path))
+
     # Determine token path (per-agent or per-flock)
     gdir = _google_dir(flock_dir, agent_name)
     if gdir:

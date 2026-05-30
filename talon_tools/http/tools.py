@@ -182,3 +182,47 @@ def build_tools() -> list[Tool]:
             handler=handler,
         ),
     ]
+
+
+def build_rendered_tools() -> list[Tool]:
+    """Return the web_fetch_rendered tool (requires Playwright)."""
+    from .rendered import web_fetch_rendered
+
+    async def handler(args: dict[str, Any]) -> ToolResult:
+        result = await web_fetch_rendered(
+            url=args.get("url", ""),
+            wait_for_selector=args.get("wait_for_selector"),
+            timeout_ms=args.get("timeout_ms", 15000),
+        )
+        return ToolResult(content=result)
+
+    return [
+        Tool(
+            name="web_fetch_rendered",
+            description=(
+                "Fetch a web page with full JavaScript rendering using a headless browser. "
+                "Use this when http_request returns empty/minimal content from JS-heavy sites "
+                "(SPAs, React/Vue/Angular apps). Returns cleaned text content (no HTML). "
+                "Slower than http_request (~5-15s) — only use when needed."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Full URL to fetch (https://...)",
+                    },
+                    "wait_for_selector": {
+                        "type": "string",
+                        "description": "Optional CSS selector to wait for before extracting content",
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "description": "Navigation timeout in milliseconds. Default: 15000",
+                    },
+                },
+                "required": ["url"],
+            },
+            handler=handler,
+        ),
+    ]

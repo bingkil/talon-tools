@@ -12,6 +12,7 @@ from .shell import run_command
 def build_tools(
     *,
     cwd: Path | None = None,
+    write_root: Path | None = None,
     agent_name: str | None = None,
     sandbox_validator: Callable[[str], str | None] | None = None,
 ) -> list[Tool]:
@@ -20,6 +21,7 @@ def build_tools(
     Args:
         cwd: Working directory for all commands. If set, commands are
              locked to this directory and cannot cd elsewhere.
+        write_root: Allowed root for write operations. If not set, defaults to cwd.
         agent_name: Agent identifier for sandbox logging.
         sandbox_validator: Optional callable(command) -> error_msg | None.
                           Called before execution for additional security checks.
@@ -34,6 +36,7 @@ def build_tools(
             command,
             timeout=min(timeout, 120),
             cwd=cwd,
+            write_root=write_root or cwd,
             sandbox_validator=sandbox_validator,
         )
         return ToolResult(content=output)
