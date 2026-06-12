@@ -19,7 +19,7 @@ CREDENTIALS = [
 ]
 
 
-def build_tools() -> list[Tool]:
+def build_tools(**_kwargs) -> list[Tool]:
     """Return X/Twitter tools for agent use."""
     validate("x", CREDENTIALS)
 

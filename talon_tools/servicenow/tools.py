@@ -102,7 +102,7 @@ async def _my_change_requests(args: dict) -> ToolResult:
     return ToolResult(json.dumps({"count": len(crs), "change_requests": crs}))
 
 
-def build_tools() -> list[Tool]:
+def build_tools(**_kwargs) -> list[Tool]:
     validate("servicenow", CREDENTIALS)
 
     # Capture credentials eagerly while agent context is guaranteed set

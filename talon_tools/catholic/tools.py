@@ -147,7 +147,7 @@ async def _daily_readings(args: dict) -> ToolResult:
     return ToolResult(json.dumps(readings, ensure_ascii=False))
 
 
-def build_tools() -> list[Tool]:
+def build_tools(**_kwargs) -> list[Tool]:
     return [
         Tool(
             name="daily_mass_readings",

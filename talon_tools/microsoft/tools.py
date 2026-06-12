@@ -189,6 +189,6 @@ def outlook_tools() -> list[Tool]:
     return mail_tools() + calendar_tools()
 
 
-def build_tools() -> list[Tool]:
+def build_tools(**_kwargs) -> list[Tool]:
     validate("microsoft", CREDENTIALS)
     return mail_tools() + calendar_tools() + teams_tools() + onedrive_tools()
