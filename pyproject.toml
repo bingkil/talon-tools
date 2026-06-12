@@ -19,7 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries",
 ]
-dependencies = ["pyyaml>=6.0", "truststore>=0.9", "cryptography>=43.0", "keyring>=25.0"]
+dependencies = ["talon", "pyyaml>=6.0", "truststore>=0.9", "cryptography>=43.0", "keyring>=25.0"]
 
 [project.urls]
 Homepage = "https://github.com/bingkil/talon-tools"
