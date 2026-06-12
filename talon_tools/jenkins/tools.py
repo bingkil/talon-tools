@@ -113,7 +113,7 @@ def _format_build_detail(build: dict, job_name: str) -> str:
     return "\n".join(lines)
 
 
-def build_tools() -> list[Tool]:
+def build_tools(**_kwargs) -> list[Tool]:
     """Return Jenkins tools for agent use."""
     validate("jenkins", CREDENTIALS)
 

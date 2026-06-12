@@ -82,7 +82,7 @@ def _format_issue_detail(issue: dict) -> str:
     return "\n".join(lines)
 
 
-def build_tools() -> list[Tool]:
+def build_tools(**_kwargs) -> list[Tool]:
     """Return Jira and Confluence tools for agent use."""
     validate("atlassian", CREDENTIALS)
 

@@ -14,18 +14,25 @@ def build_tools(
     cwd: Path | None = None,
     write_root: Path | None = None,
     agent_name: str | None = None,
+    agent_dir: Path | None = None,
     sandbox_validator: Callable[[str], str | None] | None = None,
+    **_kwargs,
 ) -> list[Tool]:
     """Return terminal/shell tools.
 
     Args:
-        cwd: Working directory for all commands. If set, commands are
-             locked to this directory and cannot cd elsewhere.
-        write_root: Allowed root for write operations. If not set, defaults to cwd.
+        cwd: Working directory for all commands. Defaults to agent_dir if provided.
+        write_root: Allowed root for write operations. Defaults to agent_dir/workspace.
         agent_name: Agent identifier for sandbox logging.
+        agent_dir: Agent directory — used to derive cwd and write_root when not set explicitly.
         sandbox_validator: Optional callable(command) -> error_msg | None.
                           Called before execution for additional security checks.
     """
+    if agent_dir is not None:
+        if cwd is None:
+            cwd = Path(agent_dir)
+        if write_root is None:
+            write_root = Path(agent_dir) / "workspace"
 
     async def handler(args: dict[str, Any]) -> ToolResult:
         command = args.get("command", "")

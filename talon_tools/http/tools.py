@@ -97,7 +97,7 @@ async def http_request(
         return f"REQUEST ERROR: {type(e).__name__}: {e}\nURL: {url}"
 
 
-def build_tools() -> list[Tool]:
+def build_tools(**_kwargs) -> list[Tool]:
     """Return the http_request tool."""
 
     async def handler(args: dict[str, Any]) -> ToolResult:

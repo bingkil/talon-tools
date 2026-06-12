@@ -8,7 +8,7 @@ from talon_tools import Tool, ToolResult
 from .duckduckgo import search_web
 
 
-def build_tools() -> list[Tool]:
+def build_tools(**_kwargs) -> list[Tool]:
     """Return web search tools."""
 
     async def handler(args: dict[str, Any]) -> ToolResult:

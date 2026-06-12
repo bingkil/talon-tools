@@ -10,7 +10,7 @@ from .client import get_recent_earthquakes, query_earthquakes, _async_fetch, _fo
 from .dedup import load_seen, save_seen, filter_new
 
 
-def build_tools(agent_dir: Path | None = None) -> list[Tool]:
+def build_tools(agent_dir: Path | None = None, **_kwargs) -> list[Tool]:
     """Return earthquake tools."""
 
     # ------------------------------------------------------------------

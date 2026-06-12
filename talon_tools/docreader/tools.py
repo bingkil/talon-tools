@@ -13,7 +13,9 @@ from .reader import read_document, SUPPORTED_EXTENSIONS
 log = logging.getLogger(__name__)
 
 
-def build_tools(root_dir: Path | None = None) -> list[Tool]:
+def build_tools(root_dir: Path | None = None, agent_dir: Path | None = None, **_kwargs) -> list[Tool]:
+    if root_dir is None:
+        root_dir = agent_dir
     """Return document reader tools, optionally sandboxed to root_dir."""
 
     async def read_handler(args: dict[str, Any]) -> ToolResult:

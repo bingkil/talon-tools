@@ -61,7 +61,7 @@ def _format_db_results(results: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def build_tools() -> list[Tool]:
+def build_tools(**_kwargs) -> list[Tool]:
     """Return Notion tools for agent use."""
     validate("notion", CREDENTIALS)
 

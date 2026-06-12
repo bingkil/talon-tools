@@ -85,6 +85,32 @@ all = [
 [project.scripts]
 talon-tools = "talon_tools.cli:main"
 
+# Tool bundles discoverable by talon-oss (and any other framework) via
+# importlib.metadata entry_points(group="talon.tools").
+# Convention: build_tools(**kwargs) accepts agent_dir, agent_name, cfg as kwargs.
+[project.entry-points."talon.tools"]
+google     = "talon_tools.google.tools:build_tools"
+gmail      = "talon_tools.google.tools:gmail_tools"
+gcalendar  = "talon_tools.google.tools:calendar_tools"
+microsoft  = "talon_tools.microsoft.tools:build_tools"
+x          = "talon_tools.x.tools:build_tools"
+facebook   = "talon_tools.facebook.tools:build_tools"
+notion     = "talon_tools.notion.tools:build_tools"
+atlassian  = "talon_tools.atlassian.tools:build_tools"
+terminal   = "talon_tools.terminal.tools:build_tools"
+docreader  = "talon_tools.docreader.tools:build_tools"
+servicenow = "talon_tools.servicenow.tools:build_tools"
+catholic   = "talon_tools.catholic.tools:build_tools"
+jenkins    = "talon_tools.jenkins.tools:build_tools"
+docenter   = "talon_tools.docenter.tools:build_tools"
+earthquake = "talon_tools.earthquake.tools:build_tools"
+spotify    = "talon_tools.spotify.tools:build_tools"
+weather    = "talon_tools.weather.tools:build_tools"
+travel     = "talon_tools.travel.tools:build_tools"
+http       = "talon_tools.http.tools:build_tools"
+search     = "talon_tools.search.tools:build_tools"
+wa         = "talon_tools.wa.tools:build_tools"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

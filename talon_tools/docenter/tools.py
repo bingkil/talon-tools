@@ -21,7 +21,7 @@ from .client import DocenterClient
 log = logging.getLogger(__name__)
 
 
-def build_tools() -> list[Tool]:
+def build_tools(**_kwargs) -> list[Tool]:
     """Return Docenter tools for agent use."""
 
     _client: DocenterClient | None = None

@@ -18,7 +18,7 @@ CREDENTIALS = [
 ]
 
 
-def build_tools(agent_dir: Path | None = None) -> list[Tool]:
+def build_tools(agent_dir: Path | None = None, **_kwargs) -> list[Tool]:
     """Return Spotify tools."""
     validate("spotify", CREDENTIALS)
 
