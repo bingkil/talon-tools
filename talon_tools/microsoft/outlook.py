@@ -33,6 +33,13 @@ def list_inbox(max_results: int = 10, filter: str = "") -> str:
         if filter:
             params["$filter"] = filter
         r = c.get("/me/mailFolders/inbox/messages", params=params)
+        if r.status_code == 400:
+            return (
+                f"Filter rejected by Graph API (400). Your filter: \"{filter}\". "
+                "Common mistakes: use lowercase 'or'/'and', use 'from/emailAddress/address eq ...' not 'from eq ...', "
+                "do NOT use toRecipients/any() or ccRecipients/any() — these are not filterable. "
+                "For complex queries use outlook_search instead."
+            )
         r.raise_for_status()
 
     messages = r.json().get("value", [])
@@ -96,13 +103,19 @@ def search_messages(query: str, max_results: int = 10) -> str:
                 "$search": f'"{query}"',
                 "$top": max_results,
                 "$select": "id,subject,from,receivedDateTime",
-                "$orderby": "receivedDateTime desc",
+                # NOTE: $orderby is not allowed with $search (Graph API restriction)
             },
             headers={
                 **c.headers,
                 "ConsistencyLevel": "eventual",
             },
         )
+        if r.status_code == 400:
+            return (
+                f"Search rejected by Graph API (400). Query: \"{query}\". "
+                "Tip: use simple KQL keywords (e.g. 'budget report'), not OData syntax. "
+                "Do not combine $search with $orderby."
+            )
         r.raise_for_status()
 
     messages = r.json().get("value", [])

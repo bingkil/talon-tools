@@ -688,6 +688,18 @@ def build_tools(**_kwargs) -> list[Tool]:
     return jira_tools + confluence_tools
 
 
+def build_jira_tools(**_kwargs) -> list[Tool]:
+    """Return only Jira tools. Shares credentials with atlassian/confluence."""
+    all_tools = build_tools(**_kwargs)
+    return [t for t in all_tools if t.name.startswith("jira_")]
+
+
+def build_confluence_tools(**_kwargs) -> list[Tool]:
+    """Return only Confluence tools. Shares credentials with atlassian/jira."""
+    all_tools = build_tools(**_kwargs)
+    return [t for t in all_tools if t.name.startswith("confluence_")]
+
+
 def _format_confluence_result(result: dict) -> str:
     """Format a single CQL search result."""
     content = result.get("content", result)
