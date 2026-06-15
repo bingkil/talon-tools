@@ -55,7 +55,7 @@ def mail_tools() -> list[Tool]:
               "List recent emails in the Outlook inbox. Optionally filter with OData $filter syntax.",
               {"type": "object", "properties": {
                   "max_results": {"type": "integer", "description": "Number of emails to list (default 10)"},
-                  "filter": {"type": "string", "description": "OData filter expression (e.g. \"isRead eq false\")"},
+                  "filter": {"type": "string", "description": "OData $filter expression. Operators must be lowercase: 'eq', 'and', 'or', 'gt', 'lt'. Filterable fields: subject, from/emailAddress/address, receivedDateTime, isRead, importance, hasAttachments. WRONG: \"from eq 'x@y.com'\" — CORRECT: \"from/emailAddress/address eq 'x@y.com'\". WRONG: \"OR\", \"AND\" — CORRECT: \"or\", \"and\". Keep filters simple; for complex queries use outlook_search instead. Do NOT filter on toRecipients or ccRecipients (unsupported)."},
               }},
               outlook.list_inbox),
 
