@@ -110,6 +110,7 @@ travel     = "talon_tools.travel.tools:build_tools"
 http       = "talon_tools.http.tools:build_tools"
 search     = "talon_tools.search.tools:build_tools"
 wa         = "talon_tools.wa.tools:build_tools"
+chrome-bookmarks = "talon_tools.chrome_bookmarks.tools:build_tools"
 
 [build-system]
 requires = ["hatchling"]
