@@ -1,7 +1,6 @@
 ---
 description: Control Spotify playback, search music, and manage devices
-dependencies:
-  - talon-tools[spotify]
+dependencies: talon-tools[spotify]
 ---
 
 # Spotify

@@ -1,7 +1,6 @@
 ---
 description: Get daily Catholic mass readings (first reading, psalm, gospel, etc.)
-dependencies:
-  - talon-tools[catholic]
+dependencies: talon-tools[catholic]
 ---
 
 # Catholic Daily Readings

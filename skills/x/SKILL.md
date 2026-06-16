@@ -1,7 +1,6 @@
 ---
 description: Read your X (Twitter) timeline, search tweets, and get tweet details
-dependencies:
-  - talon-tools[x]
+dependencies: talon-tools[x]
 ---
 
 # X (Twitter)

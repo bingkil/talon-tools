@@ -1,7 +1,6 @@
 ---
 description: Search, create, and manage Jira issues and Confluence pages
-dependencies:
-  - talon-tools[atlassian]
+dependencies: talon-tools[atlassian]
 ---
 
 # Atlassian (Jira & Confluence)

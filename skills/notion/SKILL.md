@@ -1,7 +1,6 @@
 ---
 description: Search, read, create, and update Notion pages and databases
-dependencies:
-  - talon-tools[notion]
+dependencies: talon-tools[notion]
 ---
 
 # Notion

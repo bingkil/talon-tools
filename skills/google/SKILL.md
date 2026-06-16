@@ -1,7 +1,6 @@
 ---
 description: Gmail, Calendar, Docs, Contacts, Photos, Tasks, Keep, Sheets, Drive, and YouTube
-dependencies:
-  - talon-tools[google]
+dependencies: talon-tools[google]
 ---
 
 # Google Workspace
