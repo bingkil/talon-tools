@@ -1,7 +1,6 @@
 ---
 description: Search the web using DuckDuckGo (no API key needed)
-dependencies:
-  - talon-tools[search]
+dependencies: talon-tools[search]
 ---
 
 # Web Search

@@ -1,7 +1,6 @@
 ---
 description: Read your Facebook news feed posts from friends and pages
-dependencies:
-  - talon-tools[facebook]
+dependencies: talon-tools[facebook]
 ---
 
 # Facebook Feed

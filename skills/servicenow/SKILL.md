@@ -1,7 +1,6 @@
 ---
 description: List your ServiceNow cases and change requests
-dependencies:
-  - talon-tools[servicenow]
+dependencies: talon-tools[servicenow]
 ---
 
 # ServiceNow

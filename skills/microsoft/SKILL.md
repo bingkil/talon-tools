@@ -1,7 +1,6 @@
 ---
 description: Outlook email, calendar, and Microsoft Teams messages via Microsoft Graph
-dependencies:
-  - talon-tools[microsoft]
+dependencies: talon-tools[microsoft]
 ---
 
 # Microsoft 365

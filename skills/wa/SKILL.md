@@ -1,7 +1,6 @@
 ---
 description: Read, search, and send WhatsApp messages across chats and groups
-dependencies:
-  - wacli
+dependencies: wacli
 ---
 
 # WhatsApp

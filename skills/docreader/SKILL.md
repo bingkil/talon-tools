@@ -1,7 +1,6 @@
 ---
 description: Extract text from PDFs, Word docs, Excel spreadsheets, and PowerPoint presentations
-dependencies:
-  - talon-tools[docreader]
+dependencies: talon-tools[docreader]
 ---
 
 # Document Reader
