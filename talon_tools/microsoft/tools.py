@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import inspect
 from functools import partial
 from typing import Any
 
@@ -39,8 +40,10 @@ async def _run(fn, **kwargs):
 
 
 def _tool(name: str, description: str, parameters: dict, fn) -> Tool:
+    _sig_params = inspect.signature(fn).parameters
     async def handler(args: dict[str, Any]) -> ToolResult:
-        result = await _run(fn, **args)
+        filtered = {k: v for k, v in args.items() if k in _sig_params}
+        result = await _run(fn, **filtered)
         return ToolResult(content=result)
     return Tool(name=name, description=description, parameters=parameters, handler=handler)
 
