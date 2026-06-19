@@ -39,6 +39,7 @@ microsoft = [
 ]
 search = ["ddgs"]
 facebook = ["playwright", "browser-cookie3"]
+tarantula = ["httpx", "ddgs", "playwright", "firecrawl-py>=2.0"]
 notion = ["notion-client>=3.0.0"]
 atlassian = ["atlassian-python-api>=3.41"]
 docreader = [
@@ -66,6 +67,7 @@ all = [
     "talon-tools[microsoft]",
     "talon-tools[search]",
     "talon-tools[facebook]",
+    "talon-tools[tarantula]",
     "talon-tools[notion]",
     "talon-tools[atlassian]",
     "talon-tools[docreader]",
@@ -90,6 +92,15 @@ talon-tools = "talon_tools.cli:main"
 # Convention: build_tools(**kwargs) accepts agent_dir, agent_name, cfg as kwargs.
 [project.entry-points."talon.tools"]
 google     = "talon_tools.google.tools:build_tools"
+gmail      = "talon_tools.google.tools:build_gmail_tools"
+gcalendar  = "talon_tools.google.tools:build_calendar_tools"
+gdocs      = "talon_tools.google.tools:build_docs_tools"
+gdrive     = "talon_tools.google.tools:build_drive_tools"
+gsheets    = "talon_tools.google.tools:build_sheets_tools"
+gtasks     = "talon_tools.google.tools:build_tasks_tools"
+gcontacts  = "talon_tools.google.tools:build_contacts_tools"
+gphotos    = "talon_tools.google.tools:build_photos_tools"
+gyoutube   = "talon_tools.google.tools:build_youtube_tools"
 microsoft  = "talon_tools.microsoft.tools:build_tools"
 x          = "talon_tools.x.tools:build_tools"
 facebook   = "talon_tools.facebook.tools:build_tools"
@@ -109,6 +120,7 @@ weather    = "talon_tools.weather.tools:build_tools"
 travel     = "talon_tools.travel.tools:build_tools"
 http       = "talon_tools.http.tools:build_tools"
 search     = "talon_tools.search.tools:build_tools"
+tarantula  = "talon_tools.tarantula.tools:build_tools"
 wa         = "talon_tools.wa.tools:build_tools"
 chrome-bookmarks = "talon_tools.chrome_bookmarks.tools:build_tools"
 

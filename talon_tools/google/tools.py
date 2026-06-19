@@ -779,3 +779,61 @@ def build_tools(token_file=None, inputs_dir=None, **_kwargs) -> list[Tool]:
         youtube_tools(token_file) +
         maps_tools()
     )
+
+
+# ── Sub-bundle builders ────────────────────────────────────────────────────────
+# Each loads only one Google service so an agent can request just the tools it
+# needs (token economy). All share the same OAuth token / credentials.
+
+def build_gmail_tools(token_file=None, inputs_dir=None, **_kwargs) -> list[Tool]:
+    """Return only Gmail tools. Shares credentials with the google bundle."""
+    validate("google", CREDENTIALS)
+    return gmail_tools(token_file, inputs_dir=inputs_dir)
+
+
+def build_calendar_tools(token_file=None, **_kwargs) -> list[Tool]:
+    """Return only Calendar tools. Shares credentials with the google bundle."""
+    validate("google", CREDENTIALS)
+    return calendar_tools(token_file)
+
+
+def build_docs_tools(token_file=None, **_kwargs) -> list[Tool]:
+    """Return only Docs tools. Shares credentials with the google bundle."""
+    validate("google", CREDENTIALS)
+    return docs_tools(token_file)
+
+
+def build_drive_tools(token_file=None, **_kwargs) -> list[Tool]:
+    """Return only Drive tools. Shares credentials with the google bundle."""
+    validate("google", CREDENTIALS)
+    return drive_tools(token_file)
+
+
+def build_sheets_tools(token_file=None, **_kwargs) -> list[Tool]:
+    """Return only Sheets tools. Shares credentials with the google bundle."""
+    validate("google", CREDENTIALS)
+    return sheets_tools(token_file)
+
+
+def build_tasks_tools(token_file=None, **_kwargs) -> list[Tool]:
+    """Return only Tasks tools. Shares credentials with the google bundle."""
+    validate("google", CREDENTIALS)
+    return tasks_tools(token_file)
+
+
+def build_contacts_tools(token_file=None, **_kwargs) -> list[Tool]:
+    """Return only Contacts tools. Shares credentials with the google bundle."""
+    validate("google", CREDENTIALS)
+    return contacts_tools(token_file)
+
+
+def build_photos_tools(token_file=None, **_kwargs) -> list[Tool]:
+    """Return only Photos tools. Shares credentials with the google bundle."""
+    validate("google", CREDENTIALS)
+    return photos_tools(token_file)
+
+
+def build_youtube_tools(token_file=None, **_kwargs) -> list[Tool]:
+    """Return only YouTube tools. Shares credentials with the google bundle."""
+    validate("google", CREDENTIALS)
+    return youtube_tools(token_file)
