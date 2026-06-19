@@ -185,6 +185,47 @@ def authorize_interactive(token_file: Path | str | None = None) -> Credentials:
     return creds
 
 
+def run_oauth_emit_json(client_secrets_file: Path | str) -> None:
+    """Run the OAuth browser flow and emit JSON events to stdout.
+
+    Designed for host programs (e.g. the Nest web UI) that persist the
+    resulting token themselves rather than relying on the credential store.
+
+    Emits one JSON object per line on stdout:
+        {"event": "start"}
+        {"event": "success", "token": "<creds json>"}
+        {"event": "error", "message": "..."}
+    """
+    import sys
+
+    def emit(obj: dict) -> None:
+        sys.stdout.write(json.dumps(obj) + "\n")
+        sys.stdout.flush()
+
+    creds_file = Path(client_secrets_file)
+    if not creds_file.exists():
+        emit({"event": "error", "message": f"Client secrets not found: {creds_file}"})
+        return
+
+    emit({"event": "start"})
+    try:
+        flow = InstalledAppFlow.from_client_secrets_file(str(creds_file), SCOPES)
+        creds = flow.run_local_server(port=0, open_browser=True)
+    except Exception as e:  # noqa: BLE001 — surface any OAuth error to the host
+        msg = str(e)
+        low = msg.lower()
+        if "access_denied" in low or "blocked" in low:
+            msg = (
+                "Access was denied by Google. Your OAuth consent screen is in "
+                "Testing mode — add your Google account as a test user in the "
+                "GCP console, then try again."
+            )
+        emit({"event": "error", "message": msg})
+        return
+
+    emit({"event": "success", "token": creds.to_json()})
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -201,9 +242,27 @@ if __name__ == "__main__":
         "--token-file",
         help="Explicit path for the token file",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON events to stdout (for host programs that persist the token)",
+    )
+    parser.add_argument(
+        "--client-secrets",
+        help="Path to OAuth client secrets JSON (required with --json)",
+    )
     args = parser.parse_args()
 
-    if args.agent:
+    if args.json:
+        secrets = args.client_secrets
+        if not secrets:
+            import sys
+            sys.stdout.write(
+                json.dumps({"event": "error", "message": "--client-secrets is required with --json"}) + "\n"
+            )
+            sys.exit(1)
+        run_oauth_emit_json(secrets)
+    elif args.agent:
         from pathlib import Path as P
         flock = P(args.flock).resolve() if args.flock else P.cwd()
         target = flock / args.agent / "google" / "token.json"
