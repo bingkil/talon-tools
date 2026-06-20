@@ -1,6 +1,6 @@
 ---
 description: Get daily Catholic mass readings (first reading, psalm, gospel, etc.)
-dependencies: talon-tools[catholic]
+dependencies: talon-tools[daily-readings]
 ---
 
 # Catholic Daily Readings
@@ -18,14 +18,14 @@ Fetch the daily Catholic mass readings from Universalis. Returns the first readi
 ## Installation & Invocation
 
 ```bash
-pip install 'talon-tools[catholic]'
+pip install 'talon-tools[daily-readings]'
 ```
 
 Load and call:
 
 ```python
 import asyncio
-from talon_tools.catholic.tools import build_tools
+from talon_tools.daily_readings.tools import build_tools
 
 tools = {t.name: t for t in build_tools()}
 result = asyncio.run(tools["daily_mass_readings"].handler({}))
