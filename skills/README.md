@@ -31,7 +31,7 @@ cp -r skills/spotify    /path/to/your/agent/skills/
 | Skill | Description |
 |-------|-------------|
 | `atlassian` | Jira & Confluence — issues, pages, search |
-| `catholic` | Daily Catholic mass readings |
+| `daily-readings` | Daily Catholic mass readings |
 | `docreader` | Extract text from PDF, Word, Excel, PowerPoint |
 | `earthquake` | Real-time USGS earthquake monitoring |
 | `facebook` | Facebook news feed |

@@ -54,7 +54,7 @@ mcp = ["httpx", "mcp>=1.0"]
 gemini = ["google-genai>=1.0", "openai>=1.0"]
 jenkins = ["httpx"]
 servicenow = ["aiohttp", "beautifulsoup4"]
-catholic = ["aiohttp"]
+daily-readings = ["aiohttp"]
 spotify = ["httpx"]
 docenter = ["aiohttp", "PyJWT", "beautifulsoup4"]
 youtube = ["yt-dlp>=2024.0", "httpx"]
@@ -74,7 +74,7 @@ all = [
     "talon-tools[x]",
     "talon-tools[mcp]",
     "talon-tools[servicenow]",
-    "talon-tools[catholic]",
+    "talon-tools[daily-readings]",
     "talon-tools[spotify]",
     "talon-tools[docenter]",
     "talon-tools[youtube]",
@@ -111,7 +111,7 @@ confluence = "talon_tools.atlassian.tools:build_confluence_tools"
 terminal   = "talon_tools.terminal.tools:build_tools"
 docreader  = "talon_tools.docreader.tools:build_tools"
 servicenow = "talon_tools.servicenow.tools:build_tools"
-catholic   = "talon_tools.catholic.tools:build_tools"
+daily-readings = "talon_tools.daily_readings.tools:build_tools"
 jenkins    = "talon_tools.jenkins.tools:build_tools"
 docenter   = "talon_tools.docenter.tools:build_tools"
 earthquake = "talon_tools.earthquake.tools:build_tools"

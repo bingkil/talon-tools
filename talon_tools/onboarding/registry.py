@@ -409,7 +409,7 @@ _ZERO_CONFIG = {
     "docreader": "Document Reader",
     "weather": "Weather",
     "earthquake": "Earthquake",
-    "catholic": "Catholic KB",
+    "daily-readings": "Daily Readings",
 }
 
 
