@@ -51,7 +51,7 @@ def _resolve_headers(headers: dict[str, str] | None) -> dict[str, str] | None:
     return {k: _resolve_env(v) for k, v in headers.items()}
 
 
-def build_tools(servers: list[dict[str, Any]]) -> list[Tool]:
+def build_tools(servers: list[dict[str, Any]], agent_name: str | None = None) -> list[Tool]:
     """Build Talon tools by connecting to MCP servers and discovering their tools.
 
     Results are cached for the sentinel session — MCP discovery only runs once
@@ -63,6 +63,8 @@ def build_tools(servers: list[dict[str, Any]]) -> list[Tool]:
             - url: MCP server HTTP endpoint
             - headers: Optional dict of HTTP headers (for auth)
             - timeout: Optional request timeout in seconds
+            - auth: Optional "oauth" — fetch a Bearer token from the Nest broker
+        agent_name: Owning agent name (required for OAuth token brokering).
 
     Returns:
         List of Talon Tool objects wrapping remote MCP tools.
@@ -81,10 +83,17 @@ def build_tools(servers: list[dict[str, Any]]) -> list[Tool]:
             log.warning(f"MCP server '{name}' has no url, skipping")
             continue
 
+        token_provider = None
+        if server_cfg.get("auth") == "oauth":
+            from .oauth import NestTokenProvider
+
+            token_provider = NestTokenProvider(agent=agent_name or "", server=name)
+
         client = MCPClient(
             url=url,
             headers=_resolve_headers(server_cfg.get("headers")),
             timeout=server_cfg.get("timeout", 60.0),
+            token_provider=token_provider,
         )
 
         try:
