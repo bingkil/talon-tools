@@ -50,8 +50,11 @@ SCOPES = [
     "https://www.googleapis.com/auth/photoslibrary.readonly",
     "https://www.googleapis.com/auth/tasks",
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/youtube",
 ]
+
+# Google rejects a single request combining youtube with drive.file
+# ("scopes cannot be requested together"), so it's requested separately.
+YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube"]
 
 
 def get_credentials(token_file: Path | str | None = None) -> Credentials:
@@ -122,11 +125,17 @@ def _resolve_credentials(token_file: Path | None = None) -> Path | None:
     return None
 
 
-def authorize_interactive(token_file: Path | str | None = None) -> Credentials:
+def authorize_interactive(
+    token_file: Path | str | None = None,
+    scopes: list[str] | None = None,
+) -> Credentials:
     """Run the full OAuth flow (opens browser). Use for initial setup / re-auth.
 
     Args:
         token_file: Deprecated. Token is stored as GOOGLE_TOKEN in credential store.
+        scopes: Scopes to request. Defaults to SCOPES. Pass YOUTUBE_SCOPES to grant
+            YouTube access separately (Google rejects requesting it alongside
+            drive.file in the same consent screen).
     """
     from talon_tools.credentials import set_credential
 
@@ -157,9 +166,12 @@ def authorize_interactive(token_file: Path | str | None = None) -> Credentials:
         print(f"     → Under 'Test users', click 'Add users' → enter your Gmail → Save")
         print()
 
-    flow = InstalledAppFlow.from_client_secrets_file(str(creds_file), SCOPES)
+    flow = InstalledAppFlow.from_client_secrets_file(str(creds_file), scopes or SCOPES)
     try:
-        creds = flow.run_local_server(port=0, open_browser=True)
+        # include_granted_scopes merges this grant with any previously authorized
+        # scopes for the account, so a follow-up YouTube-only request doesn't drop
+        # the core scopes granted earlier.
+        creds = flow.run_local_server(port=0, open_browser=True, include_granted_scopes="true")
     except Exception as e:
         error_msg = str(e).lower()
         if "access_denied" in error_msg or "blocked" in error_msg:
