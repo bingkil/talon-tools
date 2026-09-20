@@ -21,7 +21,7 @@
 **talon-tools** provides a batteries-included set of tool modules for AI agents. Each module wraps a service API and exposes a standard `build_tools() -> list[Tool]` interface that plugs into any LLM agent framework.
 
 Features:
-- **Multi-service**: Google Workspace, Microsoft 365, Atlassian, Notion, Spotify, X, Facebook, ServiceNow, web search, file system, terminal
+- **Multi-service**: Google Workspace, Microsoft 365, Atlassian, Notion, Spotify, X, Facebook, WhatsApp, ServiceNow, Jenkins, web search & crawl, HTTP, document parsing, weather, travel, and more
 - **Credential management**: Provider-based credential contract — host injects storage, tools just call `get(key)`
 - **Interactive onboarding**: `talon-tools setup` walks through OAuth flows, cookie extraction, and credential entry
 - **MCP server**: Expose tools via Model Context Protocol for VS Code, Claude Desktop, and other MCP clients
@@ -48,13 +48,22 @@ Requires **Python 3.11+**.
 | `notion` | `[notion]` | Notion pages & databases |
 | `servicenow` | `[servicenow]` | ServiceNow incidents & change requests |
 | `facebook` | `[facebook]` | Facebook session-based automation |
+| `wa` | `[wa]` | WhatsApp messaging (wraps the `wacli` binary) |
 | `x` | `[x]` | X (Twitter) API |
 | `spotify` | `[spotify]` | Spotify playback & library |
+| `jenkins` | `[jenkins]` | Jenkins jobs & builds |
+| `docenter` | `[docenter]` | Read-only access to Actimize (Zoomin) documentation |
 | `search` | `[search]` | Web search via DuckDuckGo |
+| `tarantula` | `[tarantula]` | Unified web toolkit — search, fetch, render, and Firecrawl crawl/scrape |
+| `http` | *(core)* | Arbitrary HTTP requests (optional rendered fetch via Playwright) |
 | `docreader` | `[docreader]` | PDF, Excel, Word, PowerPoint parsing |
-| `mcp` | `[mcp]` | Model Context Protocol client |
+| `chrome_bookmarks` | *(core)* | Read local Chrome bookmarks |
+| `weather` | `[weather]` | Weather via Open-Meteo (no API key) |
+| `travel` | `[travel]` | Flights, hotels, and currency lookups |
+| `daily_readings` | `[daily-readings]` | Catholic daily mass readings (Universalis) |
+| `earthquake` | *(core)* | Real-time USGS earthquake data |
+| `mcp` | `[mcp]` | Model Context Protocol client + server |
 | `terminal` | *(core)* | Shell command execution |
-| `workspace` | *(core)* | File system operations |
 
 ## Setup
 
@@ -77,7 +86,7 @@ uv run talon-tools setup --status
 Features:
 - Automatic OAuth flows (Google, Microsoft, Spotify)
 - Browser cookie extraction (X, Facebook)
-- Signal: auto-downloads signal-cli + Java to `~/.talon-tools/`
+- Auto-downloads binary dependencies where needed
 - Falls back to manual entry if automation fails
 - Credentials stored in `~/.talon-tools/credentials.yaml` by default
 
@@ -160,7 +169,7 @@ tools = load_skills(["atlassian", "notion", "search"])
 
 ### Using as agent instructions (drop-in, no code)
 
-Every tool module includes a `SKILL.md` — a self-contained instruction file that teaches an LLM agent how to use that tool. These work with **any agent harness** that supports markdown instructions: VS Code Copilot, Claude Code, Cursor, Windsurf, OpenAI Agents, or your own custom setup.
+Most tool modules include a `SKILL.md` — a self-contained instruction file that teaches an LLM agent how to use that tool. These work with **any agent harness** that supports markdown instructions: VS Code Copilot, Claude Code, Cursor, Windsurf, OpenAI Agents, or your own custom setup.
 
 The idea is simple: install `talon-tools` to get the Python tool functions, then copy the skill instructions into wherever your agent reads them.
 
@@ -299,8 +308,10 @@ pip install -e ".[all]"
 talon_tools/
 ├── credentials.py         # Credential management
 ├── cli.py                 # Interactive setup CLI
+├── mcp_server.py          # MCP server entry point
 ├── types.py               # Tool/ToolResult base types
 ├── provider.py            # LLM provider interface
+├── providers/             # Built-in LLM providers
 ├── onboarding/            # Shared onboarding utilities
 │   ├── base.py            # OnboardingStep/ToolOnboarding types
 │   ├── registry.py        # Auto-discovery of tool onboardings
@@ -313,14 +324,24 @@ talon_tools/
 ├── spotify/               # Spotify tools
 ├── x/                     # X (Twitter) tools
 ├── facebook/              # Facebook tools
+├── wa/                    # WhatsApp tools
+├── servicenow/            # ServiceNow tools
+├── jenkins/               # Jenkins tools
+├── docenter/              # Actimize docs tools
 ├── search/                # Web search tools
+├── tarantula/             # Unified web toolkit (search/fetch/crawl)
+├── http/                  # HTTP request tools
 ├── docreader/             # Document parsing tools
+├── chrome_bookmarks/      # Chrome bookmarks tools
+├── weather/               # Weather tools
+├── travel/                # Travel tools
+├── daily_readings/        # Daily mass readings tools
+├── earthquake/            # USGS earthquake tools
 ├── mcp/                   # MCP client
 ├── terminal/              # Shell execution tools
-├── workspace/             # File system tools
-└── ...each module has:
+└── ...each tool module has:
     ├── tools.py           # build_tools() -> list[Tool]
-    └── SKILL.md           # Drop-in skill instructions
+    └── SKILL.md           # Drop-in skill instructions (most modules)
 ```
 
 ### Adding a new tool module
