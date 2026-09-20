@@ -23,6 +23,17 @@ def _run_google_oauth(flock_dir=None) -> None:
     authorize_interactive(token_file)
 
 
+def _run_google_oauth_youtube(flock_dir=None) -> None:
+    """Grant YouTube access. Requested separately from the core scopes because
+    Google rejects combining the youtube scope with drive.file in one request.
+    """
+    from talon_tools.google.auth import authorize_interactive, YOUTUBE_SCOPES
+    token_file = None
+    if flock_dir:
+        token_file = flock_dir / "google" / "token.json"
+    authorize_interactive(token_file, scopes=YOUTUBE_SCOPES)
+
+
 def get_onboarding() -> ToolOnboarding:
     return ToolOnboarding(
         service="google",
@@ -80,14 +91,13 @@ def get_youtube_onboarding() -> ToolOnboarding:
             OnboardingStep(
                 title="Authorize Google with YouTube scope",
                 instruction=(
-                    "A browser will open for Google OAuth.\n"
-                    "Make sure to grant YouTube access when prompted.\n"
-                    "Note: If you already authorized Google without YouTube scope,\n"
-                    "delete the existing token.json and re-authorize."
+                    "A browser will open for Google OAuth, requesting only YouTube\n"
+                    "access. Run the main 'Authorize Google Access' step first —\n"
+                    "this merges with those previously granted scopes."
                 ),
                 credential_key="GOOGLE_TOKEN_FILE",
                 is_optional=True,
-                oauth_handler=_run_google_oauth,
+                oauth_handler=_run_google_oauth_youtube,
             ),
         ],
     )

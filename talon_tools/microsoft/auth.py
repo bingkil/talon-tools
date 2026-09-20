@@ -19,6 +19,7 @@ First-time setup / re-auth:
 
 from __future__ import annotations
 
+import json
 import sys
 import msal
 from talon_tools.credentials import get as cred, set_credential
@@ -49,6 +50,11 @@ _SERVICES = {
     "calendar": ("MS_CALENDAR_TOKEN", CALENDAR_SCOPES),
     "onedrive": ("MS_ONEDRIVE_TOKEN", ONEDRIVE_SCOPES),
 }
+
+# Union of every service's scopes — one device-code sign-in that consents to
+# all of them at once produces a single cache that satisfies acquire_token_silent
+# for each individual service's narrower scope subset (see run_device_flow_emit_json).
+ALL_SCOPES = sorted(set(MAIL_SCOPES + CALENDAR_SCOPES + ONEDRIVE_SCOPES))
 
 # Legacy fallback key (if MS_MAIL_TOKEN not found, try MS_TOKEN_CACHE)
 _LEGACY_KEY = "MS_TOKEN_CACHE"
@@ -143,6 +149,64 @@ def authorize_interactive(service: str = "mail") -> str:
     return result["access_token"]
 
 
+def run_device_flow_emit_json(client_id: str, tenant_id: str) -> None:
+    """Run one device-code flow covering all services' scopes and emit JSON events.
+
+    Designed for host programs (e.g. the Nest web UI) that persist the resulting
+    token cache themselves rather than relying on the credential store's injected
+    provider — mirrors talon_tools.google.auth.run_oauth_emit_json.
+
+    Emits one JSON object per line on stdout:
+        {"event": "device_code", "user_code": "...", "verification_uri": "...", "message": "..."}
+        {"event": "success", "token": "<serialized MSAL cache>", "username": "..."}
+        {"event": "error", "message": "..."}
+    """
+    def emit(obj: dict) -> None:
+        sys.stdout.write(json.dumps(obj) + "\n")
+        sys.stdout.flush()
+
+    cache = msal.SerializableTokenCache()
+    app = msal.PublicClientApplication(
+        client_id,
+        authority=f"https://login.microsoftonline.com/{tenant_id}",
+        token_cache=cache,
+    )
+
+    flow = app.initiate_device_flow(scopes=ALL_SCOPES)
+    if "user_code" not in flow:
+        emit({"event": "error", "message": flow.get("error_description", str(flow))})
+        return
+
+    emit({
+        "event": "device_code",
+        "user_code": flow["user_code"],
+        "verification_uri": flow["verification_uri"],
+        "message": flow.get("message", ""),
+    })
+
+    result = app.acquire_token_by_device_flow(flow)
+    if "access_token" not in result:
+        emit({"event": "error", "message": result.get("error_description", result.get("error", "unknown"))})
+        return
+
+    username = result.get("id_token_claims", {}).get("preferred_username", "unknown")
+    emit({"event": "success", "token": cache.serialize(), "username": username})
+
+
 if __name__ == "__main__":
-    svc = sys.argv[1] if len(sys.argv) > 1 else "mail"
-    authorize_interactive(svc)
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Authorize Microsoft Graph access")
+    parser.add_argument("service", nargs="?", default="mail", help="mail | calendar | onedrive")
+    parser.add_argument("--json", action="store_true", help="Emit JSON events to stdout (for host programs that persist the token)")
+    parser.add_argument("--client-id", help="Azure AD app client ID (required with --json)")
+    parser.add_argument("--tenant-id", help="Azure AD tenant ID (required with --json)")
+    args = parser.parse_args()
+
+    if args.json:
+        if not args.client_id or not args.tenant_id:
+            print(json.dumps({"event": "error", "message": "--client-id and --tenant-id are required with --json"}))
+            sys.exit(1)
+        run_device_flow_emit_json(args.client_id, args.tenant_id)
+    else:
+        authorize_interactive(args.service)
